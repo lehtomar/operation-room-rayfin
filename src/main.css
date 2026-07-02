@@ -40,11 +40,11 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(-
 .sbtn.active { color: #04121c; background: var(--accent); border-color: var(--accent); font-weight: 700; }
 .sbtn.auto { letter-spacing: 0.5px; }
 
-.kpis { display: flex; gap: 9px; flex: 1; }
-.kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 6px 13px; min-width: 150px; display: flex; flex-direction: column; justify-content: center; }
-.kpi-label { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
-.kpi-value { font-size: 23px; font-weight: 800; line-height: 1.05; }
-.kpi-sub { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+.kpis { display: flex; gap: 12px; flex: 1; }
+.kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 10px 16px; min-width: 150px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.kpi-label { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; line-height: 1.15; }
+.kpi-value { font-size: 23px; font-weight: 800; line-height: 1.08; }
+.kpi-sub { font-size: 10.5px; color: var(--muted); margin-top: 1px; line-height: 1.2; }
 .kpi.danger .kpi-value { color: var(--danger); }
 .kpi.warn .kpi-value { color: var(--warn); }
 
@@ -72,7 +72,7 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(-
 .sim-date { font-size: 9.5px; color: var(--muted); }
 
 /* ---------- stage ---------- */
-.stage { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 336px; grid-template-rows: 1fr 176px; }
+.stage { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 336px; grid-template-rows: 1fr 240px; }
 .map-root { position: relative; grid-column: 1; grid-row: 1; min-height: 0; overflow: hidden; }
 .maplibregl-map { background: var(--bg); }
 .hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; color: var(--muted); font-size: 12px; }
@@ -126,13 +126,19 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(-
 .st-restored { color: var(--ok); border-color: #14532d; background: #0c2417; }
 .mini-dispatch { background: transparent; color: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 9px; font-size: 10.5px; font-weight: 600; cursor: pointer; letter-spacing: 0.4px; }
 .mini-dispatch:hover { background: var(--accent); color: #04121c; }
+.mini-dispatch.alt { color: var(--warn); border-color: var(--warn); }
+.mini-dispatch.alt:hover { background: var(--warn); color: #04121c; }
 .icard-nocrew { color: var(--muted); font-size: 11px; }
+.queue-divider { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; padding: 8px 2px 2px; border-top: 1px solid var(--border); margin-top: 4px; }
+.icard.done { opacity: 0.62; cursor: pointer; border-left: 3px solid var(--ok); }
+.icard.done:hover { opacity: 0.85; }
+.dispatch-btn.reserve { background: var(--warn); color: #1a1200; }
 
 /* ---------- crew gantt ---------- */
 .crewpanel { grid-column: 1 / 3; grid-row: 2; border-top: 1px solid var(--border); background: var(--panel-2); display: flex; flex-direction: column; min-height: 0; }
 .crew-head { padding: 6px 14px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; display: flex; gap: 12px; align-items: baseline; border-bottom: 1px solid var(--border); }
 .crew-meta { color: var(--muted); font-weight: 500; }
-.crew-grid { display: grid; grid-template-columns: 130px 200px 190px 1fr; align-items: center; overflow-y: auto; flex: 1; min-height: 0; }
+.crew-grid { display: grid; grid-template-columns: 130px 200px 190px 1fr; grid-auto-rows: 28px; align-items: center; overflow: visible; flex: 1; min-height: 0; }
 .crew-colhead { font-size: 9.5px; color: var(--muted); letter-spacing: 0.6px; padding: 4px 12px; position: sticky; top: 0; background: var(--panel-2); }
 .crew-ruler { position: relative; height: 20px; border-bottom: 1px solid var(--border); }
 .ruler-h { position: absolute; top: 3px; font-size: 9px; color: var(--muted); transform: translateX(-50%); }
@@ -158,6 +164,7 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(-
 .gblock { position: absolute; top: 4px; height: 16px; background: #1c3a2b; border: 1px solid var(--ok); border-radius: 3px; overflow: hidden; display: flex; align-items: center; }
 .gblock.done { background: #16212e; border-color: #334155; opacity: 0.8; }
 .gb-enroute { position: absolute; left: 0; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, rgba(245,165,36,0.4) 0 4px, transparent 4px 8px); }
+.gb-proj { position: absolute; top: 0; bottom: 0; right: 0; background: repeating-linear-gradient(45deg, rgba(53,208,127,0.22) 0 5px, transparent 5px 10px); border-left: 1px dashed var(--ok); }
 .gb-label { position: relative; font-size: 9px; padding: 0 4px; color: #cbf3dd; white-space: nowrap; }
 
 /* ---------- fault detail ---------- */

@@ -30,6 +30,7 @@ export interface Incident {
   eta_min: number | null;
   started_at: string | null;
   restored_at: string | null;
+  reserved_crew_id?: string | null; // queued "next free" crew (display hint)
 }
 
 export interface Crew {

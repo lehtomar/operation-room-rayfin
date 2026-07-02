@@ -56,6 +56,8 @@ interface IncidentState {
   eta_min: number | null;
   started_at: string | null;
   restored_at: string | null;
+  reserveNext: boolean;
+  reserved_crew_id: string | null;
 }
 
 /**
@@ -205,6 +207,8 @@ export class SimDriver {
         eta_min: null,
         started_at: this.simClock.toISOString(),
         restored_at: null,
+        reserveNext: false,
+        reserved_crew_id: null,
       };
       this.incidents.set(f.incident_id, inc);
       this.fired.add(f.incident_id);
@@ -233,6 +237,79 @@ export class SimDriver {
       }
     }
     return best;
+  }
+
+  /** Estimated wall-clock ms when a crew will next be free/idle. */
+  private crewFreeAtMs(crew: CrewState): number {
+    if (crew.status === 'idle') return this.simClock.getTime();
+    const inc = crew.current_incident_id ? this.incidents.get(crew.current_incident_id) : null;
+    const repairMs = (inc?.repair_effort_min ?? 60) * 60000;
+    if (crew.status === 'onsite') {
+      const onsite = this.onsiteAt.get(crew.crew_id) ?? this.simClock;
+      return onsite.getTime() + repairMs;
+    }
+    const etaMs = (inc?.eta_min ?? 10) * 60000; // enroute: remaining travel + repair
+    return this.simClock.getTime() + etaMs + repairMs;
+  }
+
+  /** The skilled crew that will be free soonest (tie-break: closest). */
+  private soonestFreeCrew(inc: IncidentState): { crew: CrewState; freeAtMs: number } | null {
+    let best: { crew: CrewState; freeAtMs: number } | null = null;
+    let bestKm = Infinity;
+    for (const c of this.crews.values()) {
+      if (!c.skills.includes(inc.required_skill)) continue;
+      const freeAt = this.crewFreeAtMs(c);
+      const km = haversineKm(c.lat, c.lon, inc.lat, inc.lon);
+      if (!best || freeAt < best.freeAtMs || (freeAt === best.freeAtMs && km < bestKm)) {
+        best = { crew: c, freeAtMs: freeAt };
+        bestKm = km;
+      }
+    }
+    return best;
+  }
+
+  /** Preview which crew would take a still-open incident and when it frees. */
+  reserveSuggestion(incidentId: string): { crew_id: string; freesInMin: number } | null {
+    const inc = this.incidents.get(incidentId);
+    if (!inc) return null;
+    const s = this.soonestFreeCrew(inc);
+    if (!s) return null;
+    return {
+      crew_id: s.crew.crew_id,
+      freesInMin: Math.max(0, Math.round((s.freeAtMs - this.simClock.getTime()) / 60000)),
+    };
+  }
+
+  /** Queue an open incident to be taken by the next matching crew that frees. */
+  reserveNextFree(incidentId: string): void {
+    const inc = this.incidents.get(incidentId);
+    if (!inc || inc.status !== 'open') return;
+    const s = this.soonestFreeCrew(inc);
+    if (!s) return;
+    // If a matching crew is already idle, dispatch immediately.
+    if (s.crew.status === 'idle') {
+      this.assign(incidentId, s.crew.crew_id);
+      return;
+    }
+    inc.reserveNext = true;
+    inc.reserved_crew_id = s.crew.crew_id; // display hint (actual crew = first to free)
+    this.emit('crew_status', s.crew.crew_id, inc.feeder_id, { reserved: incidentId });
+  }
+
+  /** When a crew becomes idle, give it the best waiting incident it may take. */
+  private tryAssignFreedCrew(crew: CrewState): void {
+    let best: IncidentState | null = null;
+    let bestKm = Infinity;
+    for (const inc of this.incidents.values()) {
+      if (inc.status !== 'open') continue;
+      if (!((inc.reserveNext || this.auto) && crew.skills.includes(inc.required_skill))) continue;
+      const km = haversineKm(crew.lat, crew.lon, inc.lat, inc.lon);
+      if (km < bestKm) {
+        bestKm = km;
+        best = inc;
+      }
+    }
+    if (best) this.assign(best.incident_id, crew.crew_id);
   }
 
   assign(incidentId: string, crewId: string): void {
@@ -320,6 +397,7 @@ export class SimDriver {
           this.emit('restoration', inc.seg_id, inc.feeder_id, { incident_id: incId });
           this.persist?.incident(this.incidentRow(inc)).catch(() => {});
           this.persist?.crew(crew.crew_id, { status: 'idle', current_incident_id: null }).catch(() => {});
+          this.tryAssignFreedCrew(crew);
         }
       }
     }
@@ -386,6 +464,7 @@ export class SimDriver {
       eta_min: i.eta_min,
       started_at: i.started_at,
       restored_at: i.restored_at,
+      reserved_crew_id: i.reserveNext ? i.reserved_crew_id : null,
     }));
     return {
       scenario: {

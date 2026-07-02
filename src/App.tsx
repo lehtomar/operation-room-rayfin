@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapView } from './components/MapView';
 import { TopBar, type Kpis, type KpiSub } from './components/TopBar';
 import { FaultDetail } from './components/FaultDetail';
-import { IncidentQueue, type Suggestion } from './components/IncidentQueue';
+import { IncidentQueue, type Suggestion, type ReserveHint } from './components/IncidentQueue';
 import { CrewPanel } from './components/CrewPanel';
 import { EventsTicker } from './components/EventsTicker';
 import { loadGridAssets, type GridAssets } from './grid/assets';
@@ -119,7 +119,7 @@ export default function App() {
     };
   }, [live, assets, kpis.customersOut]);
 
-  const gantt = useMemo(() => buildCrewGantt(live.events, live.crews), [live.events, live.crews]);
+  const gantt = useMemo(() => buildCrewGantt(live.events, live.crews, live.incidents), [live.events, live.crews, live.incidents]);
   const alerts = useMemo(() => toAlerts(live.events), [live.events]);
   const stormFront = useMemo(() => (assets ? frontAt(assets.scenario, elapsedMin) : null), [assets, elapsedMin]);
 
@@ -132,6 +132,22 @@ export default function App() {
   }, [assets, live.crews, live.incidents]);
   const suggested = selectedIncident ? suggestions[selectedIncident.incident_id] ?? null : null;
 
+  // For open incidents with no idle matching crew, preview which busy crew
+  // frees next so the dispatcher can queue it ("assign to next available").
+  const reserveSuggestions: Record<string, ReserveHint | null> = useMemo(() => {
+    const d = driverRef.current;
+    if (!d) return {};
+    const out: Record<string, ReserveHint | null> = {};
+    for (const i of live.incidents) {
+      if (i.status === 'open' && !suggestions[i.incident_id] && !i.reserved_crew_id) {
+        out[i.incident_id] = d.reserveSuggestion(i.incident_id);
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live.incidents, suggestions]);
+  const reserveSuggested = selectedIncident ? reserveSuggestions[selectedIncident.incident_id] ?? null : null;
+
   function drive(fn: (d: SimDriver) => void) {
     const d = driverRef.current;
     if (!d) return;
@@ -139,6 +155,7 @@ export default function App() {
     setLive(d.snapshot());
   }
   const dispatch = (incidentId: string, crewId: string) => drive((d) => d.assign(incidentId, crewId));
+  const reserve = (incidentId: string) => drive((d) => d.reserveNextFree(incidentId));
 
   if (error) return <div className="fullscreen error">Error: {error}</div>;
   if (!assets) return <div className="fullscreen">Loading grid…</div>;
@@ -177,10 +194,12 @@ export default function App() {
         <IncidentQueue
           incidents={live.incidents}
           suggestions={suggestions}
+          reserveSuggestions={reserveSuggestions}
           simNowIso={live.scenario?.sim_clock}
           selectedId={selected}
           onSelect={setSelected}
           onDispatch={(incidentId, crewId) => dispatch(incidentId, crewId)}
+          onReserve={reserve}
         />
         <CrewPanel
           crews={live.crews}
@@ -194,8 +213,10 @@ export default function App() {
           <FaultDetail
             incident={selectedIncident}
             suggested={suggested}
+            reserveSuggestion={reserveSuggested}
             simNowIso={live.scenario?.sim_clock}
             onDispatch={(incidentId, crewId) => dispatch(incidentId, crewId)}
+            onReserve={reserve}
             onClose={() => setSelected(null)}
           />
         )}

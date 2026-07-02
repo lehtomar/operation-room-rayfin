@@ -69,6 +69,28 @@ describe('SimDriver', () => {
     expect(d.snapshot().scenario?.sim_clock).toBe(t1);
   });
 
+  it('queues an incident to the next crew that frees when none are available', () => {
+    const a = fakeAssets() as unknown as { scenario: { crews: unknown[]; faults: unknown[] } };
+    a.scenario.crews = [
+      { crew_id: 'K-1', callsign: 'T-1', skills: ['tree'], depot: { lat: 61.5, lon: 25.7 } },
+    ];
+    a.scenario.faults = [
+      { incident_id: 'INC-1', seg_id: 'S1', feeder_id: 'F1', ss_id: 'SS', offsetMin: 5, repair_effort_min: 10, lat: 61.5, lon: 25.7, fault_type: 'tree_on_line', requiredSkill: 'tree' },
+      { incident_id: 'INC-2', seg_id: 'S1', feeder_id: 'F1', ss_id: 'SS', offsetMin: 6, repair_effort_min: 10, lat: 61.5, lon: 25.7, fault_type: 'tree_on_line', requiredSkill: 'tree' },
+    ];
+    const d = new SimDriver(a as unknown as GridAssets, null);
+    d.setAuto(false);
+    d.setSpeed(600);
+    d.play();
+    d.tick(1); // both faults fire
+    d.assign('INC-1', 'K-1'); // dispatch the only crew to the first fault
+    d.reserveNextFree('INC-2'); // no idle crew → queue for the next free one
+    expect(d.snapshot().incidents.find((i) => i.incident_id === 'INC-2')?.reserved_crew_id).toBe('K-1');
+    for (let i = 0; i < 8; i++) d.tick(1); // K-1 finishes INC-1 and is auto-given INC-2
+    const inc2 = d.snapshot().incidents.find((i) => i.incident_id === 'INC-2')!;
+    expect(inc2.status).not.toBe('open');
+  });
+
   it('crews follow the road route polyline, not a straight line', () => {
     // Route detours north (lat 61.6) before reaching the incident at lat 61.5.
     const a = fakeAssets() as unknown as { scenario: { faults: { lat: number; lon: number }[] }; routes: unknown };

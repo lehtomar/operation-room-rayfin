@@ -21,8 +21,10 @@ const STATUS_LABEL: Record<string, string> = {
 interface FaultDetailProps {
   incident: Incident;
   suggested: { crew: Crew; etaMin: number } | null;
+  reserveSuggestion: { crew_id: string; freesInMin: number } | null;
   simNowIso: string | undefined;
   onDispatch: (incidentId: string, crewId: string, etaMin: number) => void;
+  onReserve: (incidentId: string) => void;
   onClose: () => void;
 }
 
@@ -58,15 +60,21 @@ export function FaultDetail(props: FaultDetailProps) {
       </div>
 
       {i.status === 'open' ? (
-        suggested ? (
+        i.reserved_crew_id ? (
+          <div className="detail-crew">Queued → {i.reserved_crew_id} (next free)</div>
+        ) : suggested ? (
           <button
             className="dispatch-btn"
             onClick={() => props.onDispatch(i.incident_id, suggested.crew.crew_id, suggested.etaMin)}
           >
             Dispatch <b>{suggested.crew.callsign}</b> · ETA {suggested.etaMin} min →
           </button>
+        ) : props.reserveSuggestion ? (
+          <button className="dispatch-btn reserve" onClick={() => props.onReserve(i.incident_id)}>
+            Assign to next free: <b>{props.reserveSuggestion.crew_id}</b> · frees in ~{props.reserveSuggestion.freesInMin} min →
+          </button>
         ) : (
-          <div className="no-crew">No available crew with the matching skill</div>
+          <div className="no-crew">No crew with the matching skill</div>
         )
       ) : (
         <div className="detail-crew">

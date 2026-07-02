@@ -1,4 +1,4 @@
-import type { Crew, GridEventRow } from './types';
+import type { Crew, GridEventRow, Incident } from './types';
 
 const FAULT_LABEL: Record<string, string> = {
   tree_on_line: 'Tree on line',
@@ -54,15 +54,23 @@ export interface GanttBlock {
   feeder: string | null;
   startMs: number;
   onsiteMs: number | null;
-  endMs: number | null; // null = still ongoing
+  endMs: number | null; // null = still ongoing (actual restoration time)
+  estOnsiteMs: number; // projected arrival
+  estEndMs: number; // projected completion (start + ETA + repair effort)
 }
 
 /**
  * Reconstruct per-crew assignment blocks from the append-only event log:
  * a `crew_status {assigned}` opens a block (enroute), `{onsite}` marks arrival,
- * and the matching `restoration` closes it. Open blocks run to `nowMs`.
+ * and the matching `restoration` closes it. Open blocks are projected forward to
+ * their estimated completion (arrival + repair effort) using the incident data.
  */
-export function buildCrewGantt(events: GridEventRow[], crews: Crew[]): Map<string, GanttBlock[]> {
+export function buildCrewGantt(
+  events: GridEventRow[],
+  crews: Crew[],
+  incidents: Incident[] = []
+): Map<string, GanttBlock[]> {
+  const incById = new Map(incidents.map((i) => [i.incident_id, i]));
   const asc = [...events].sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
   const blocks = new Map<string, GanttBlock[]>();
   for (const c of crews) blocks.set(c.crew_id, []);
@@ -73,7 +81,15 @@ export function buildCrewGantt(events: GridEventRow[], crews: Crew[]): Map<strin
     const p = e.payload ?? {};
     if (e.event_type === 'crew_status' && p.assigned) {
       const crew = e.entity_id;
-      const block: GanttBlock = { incident: String(p.assigned), feeder: e.feeder_id, startMs: t, onsiteMs: null, endMs: null };
+      const block: GanttBlock = {
+        incident: String(p.assigned),
+        feeder: e.feeder_id,
+        startMs: t,
+        onsiteMs: null,
+        endMs: null,
+        estOnsiteMs: t,
+        estEndMs: t,
+      };
       if (!blocks.has(crew)) blocks.set(crew, []);
       blocks.get(crew)!.push(block);
       openByIncident.set(String(p.assigned), { crew, block });
@@ -87,6 +103,17 @@ export function buildCrewGantt(events: GridEventRow[], crews: Crew[]): Map<strin
         rec.block.endMs = t;
         openByIncident.delete(incId);
       }
+    }
+  }
+
+  // Project estimated arrival + completion for every block.
+  for (const list of blocks.values()) {
+    for (const b of list) {
+      const inc = incById.get(b.incident);
+      const etaMs = (inc?.eta_min ?? 10) * 60000;
+      const repairMs = (inc?.repair_effort_min ?? 60) * 60000;
+      b.estOnsiteMs = b.onsiteMs ?? b.startMs + etaMs;
+      b.estEndMs = b.endMs ?? b.estOnsiteMs + repairMs;
     }
   }
   return blocks;

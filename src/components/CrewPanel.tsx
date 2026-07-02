@@ -24,6 +24,10 @@ function frac(ms: number, s: number, e: number): number {
   return Math.min(1, Math.max(0, (ms - s) / (e - s)));
 }
 
+function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' });
+}
+
 export function CrewPanel(props: CrewPanelProps) {
   const [dragOver, setDragOver] = useState<string | null>(null);
   const s = new Date(props.shiftStartIso).getTime();
@@ -89,15 +93,25 @@ export function CrewPanel(props: CrewPanelProps) {
               }}
             >
               {blocks.map((b, idx) => {
-                const end = b.endMs ?? now;
+                const restored = b.endMs != null;
+                // bar spans start → actual end (restored) or projected completion
+                const barEnd = b.endMs ?? Math.max(b.estEndMs, now + 1);
+                const span = Math.max(1, barEnd - b.startMs);
                 const left = frac(b.startMs, s, e) * 100;
-                const width = Math.max(1.5, (frac(end, s, e) - frac(b.startMs, s, e)) * 100);
-                const onsiteLeft = b.onsiteMs ? (frac(b.onsiteMs, s, e) - frac(b.startMs, s, e)) * 100 : width;
-                const done = b.endMs != null;
+                const width = Math.max(1.5, (frac(barEnd, s, e) - frac(b.startMs, s, e)) * 100);
+                const enroutePct = Math.min(100, Math.max(0, ((b.estOnsiteMs - b.startMs) / span) * 100));
+                const nowPct = Math.min(100, Math.max(0, ((now - b.startMs) / span) * 100));
+                const label = restored ? clock(b.endMs as number) : `~${clock(b.estEndMs)}`;
                 return (
-                  <div key={idx} className={`gblock ${done ? 'done' : ''}`} style={{ left: `${left}%`, width: `${width}%` }} title={`${b.incident} · ${b.feeder ?? ''}`}>
-                    <div className="gb-enroute" style={{ width: `${(onsiteLeft / width) * 100}%` }} />
-                    <span className="gb-label">{b.feeder ?? b.incident}</span>
+                  <div
+                    key={idx}
+                    className={`gblock ${restored ? 'done' : ''}`}
+                    style={{ left: `${left}%`, width: `${width}%` }}
+                    title={`${b.incident} · ${b.feeder ?? ''} · ${restored ? 'restored' : 'est. complete'} ${label}`}
+                  >
+                    <div className="gb-enroute" style={{ width: `${enroutePct}%` }} />
+                    {!restored && <div className="gb-proj" style={{ left: `${nowPct}%` }} />}
+                    <span className="gb-label">{b.feeder ?? b.incident} {label}</span>
                   </div>
                 );
               })}

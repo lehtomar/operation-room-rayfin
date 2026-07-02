@@ -42,7 +42,7 @@ export function MapView(props: MapViewProps) {
   const loadedRef = useRef(false);
   const propsRef = useRef(props);
   const [glError, setGlError] = useState<string | null>(null);
-  const [basemap, setBasemap] = useState<BasemapMode>('map');
+  const [basemap, setBasemap] = useState<BasemapMode>('satellite');
   const [visible, setVisible] = useState<Record<string, boolean>>({
     feeders: true,
     transformers: true,
