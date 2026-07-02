@@ -52,11 +52,16 @@ export function buildStyle(basemap: BasemapConfig): StyleSpecification {
   }
 
   // Live FMI weather radar (reflectivity). Rendered under the grid, off by
-  // default (it is real-time, decoupled from the replayed storm).
+  // default. Constrained to Finland + capped zoom so only relevant, visible
+  // tiles load (overzoomed beyond z8 instead of fetching more tiles).
+  const latestIso = new Date(Math.floor((Date.now() - 5 * 60000) / 300000) * 300000).toISOString();
   sources['fmi-radar'] = {
     type: 'raster',
-    tiles: [radarTiles(Date.now())],
+    tiles: [radarTiles(latestIso)],
     tileSize: 256,
+    minzoom: 0,
+    maxzoom: 8,
+    bounds: [19, 59, 32, 71],
     attribution: '© Ilmatieteen laitos (FMI)',
   };
   layers.push({
@@ -70,16 +75,18 @@ export function buildStyle(basemap: BasemapConfig): StyleSpecification {
   return { version: 8, glyphs: GLYPHS, sources, layers };
 }
 
-/** FMI open-data WMS GetMap tile template for a given radar frame (or latest). */
-export function radarTiles(cacheBust: number, timeIso?: string): string {
-  const time = timeIso ? `&TIME=${timeIso.replace(/\.\d{3}Z$/, 'Z')}` : '';
+/**
+ * FMI open-data WMS GetMap tile template for a radar frame. The URL is
+ * deterministic per (frame time, tile bbox) so browser + MapLibre caches reuse
+ * tiles across scrubbing/looping (the WMS sends Cache-Control max-age=86400).
+ */
+export function radarTiles(timeIso: string): string {
+  const t = timeIso.replace(/\.\d{3}Z$/, 'Z');
   return (
     'https://openwms.fmi.fi/geoserver/wms?service=WMS&version=1.1.1&request=GetMap' +
     '&layers=Radar:suomi_dbz_eureffin&styles=&format=image/png&transparent=true' +
-    '&srs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}' +
-    time +
-    '&cacheBust=' +
-    cacheBust
+    '&srs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}&TIME=' +
+    t
   );
 }
 

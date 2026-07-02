@@ -49,6 +49,40 @@ function frameLabel(d: Date): string {
   return d.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' });
 }
 
+// --- radar tile prefetch (warm the browser cache for smooth scrub/loop) ---
+const MERC_R = 20037508.342789244;
+function lngLatToTile(lng: number, lat: number, z: number): { x: number; y: number } {
+  const n = 2 ** z;
+  const latRad = (lat * Math.PI) / 180;
+  const x = Math.floor(((lng + 180) / 360) * n);
+  const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
+  return { x: Math.max(0, Math.min(n - 1, x)), y: Math.max(0, Math.min(n - 1, y)) };
+}
+function tileMercBBox(x: number, y: number, z: number): [number, number, number, number] {
+  const size = (2 * MERC_R) / 2 ** z;
+  const minx = -MERC_R + x * size;
+  const maxy = MERC_R - y * size;
+  return [minx, maxy - size, minx + size, maxy];
+}
+/** Preload the current viewport's tiles for every frame so the loop is smooth. */
+function prefetchRadar(map: maplibregl.Map): void {
+  const z = Math.min(8, Math.max(0, Math.floor(map.getZoom())));
+  const b = map.getBounds();
+  const nw = lngLatToTile(b.getWest(), b.getNorth(), z);
+  const se = lngLatToTile(b.getEast(), b.getSouth(), z);
+  const tiles: { x: number; y: number }[] = [];
+  for (let x = nw.x; x <= se.x; x++) for (let y = nw.y; y <= se.y; y++) tiles.push({ x, y });
+  if (tiles.length === 0 || tiles.length > 30) return; // keep the warm-up bounded
+  for (const f of RADAR_FRAMES) {
+    const base = radarTiles(f.toISOString());
+    for (const t of tiles) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // match MapLibre's CORS fetch → shared cache entry
+      img.src = base.replace('{bbox-epsg-3857}', tileMercBBox(t.x, t.y, z).join(','));
+    }
+  }
+}
+
 export function MapView(props: MapViewProps) {
   const { assets } = props;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -282,14 +316,20 @@ export function MapView(props: MapViewProps) {
     const map = mapRef.current;
     if (!map || !loadedRef.current || !visible.radar) return;
     const iso = RADAR_FRAMES[radarIdx]?.toISOString();
+    if (!iso) return;
     const src = map.getSource('fmi-radar') as unknown as { setTiles?: (t: string[]) => void } | undefined;
-    src?.setTiles?.([radarTiles(Date.now(), iso)]);
+    src?.setTiles?.([radarTiles(iso)]);
   }, [visible.radar, radarIdx]);
 
-  // jump to the latest frame when radar is turned on; stop looping when off
+  // jump to the latest frame + warm the cache when radar is turned on
   useEffect(() => {
-    if (visible.radar) setRadarIdx(RADAR_FRAMES.length - 1);
-    else setRadarPlaying(false);
+    if (visible.radar) {
+      setRadarIdx(RADAR_FRAMES.length - 1);
+      const map = mapRef.current;
+      if (map && loadedRef.current) prefetchRadar(map);
+    } else {
+      setRadarPlaying(false);
+    }
   }, [visible.radar]);
 
   // animate the radar loop
