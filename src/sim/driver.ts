@@ -70,9 +70,11 @@ export class SimDriver {
   private meta: ScenarioMeta;
   private topo: Topology;
   private routes: RouteMap;
+  private trCoord = new Map<string, [number, number]>();
   private depotIdByCrew = new Map<string, string>();
   private start: Date;
   private simClock: Date;
+  mode: 'storm' | 'live' = 'storm';
   playing = false;
   speed = 24;
   status = 'idle';
@@ -91,6 +93,12 @@ export class SimDriver {
     this.meta = assets.scenario;
     this.topo = assets.topology;
     this.routes = assets.routes ?? {};
+    // Transformer coordinates, for placing live-seed incidents/maintenance.
+    for (const f of assets.transformers?.features ?? []) {
+      const id = (f.properties as { tr_id?: string } | null)?.tr_id;
+      const g = f.geometry;
+      if (id && g && g.type === 'Point') this.trCoord.set(id, g.coordinates as [number, number]);
+    }
     // Depot ids must match routegen.py: unique depot coords in crew order.
     const depotIds = new Map<string, string>();
     for (const c of this.meta.crews) {
@@ -155,6 +163,117 @@ export class SimDriver {
       this.persist.resetLive().catch(() => {});
       this.persist.scenario({ sim_clock: this.simClock, playing: false, status: 'idle' }).catch(() => {});
     }
+    if (this.mode === 'live') this.seedLive();
+  }
+
+  /** Switch board between recorded storm replay and live/normal operations. */
+  setMode(m: 'storm' | 'live'): void {
+    if (m === this.mode) return;
+    this.mode = m;
+    if (m === 'storm') this.speed = this.meta.defaultSpeed ?? 24;
+    this.reset();
+  }
+
+  private segCoord(segId: string): [number, number] {
+    const seg = this.topo.segments[segId];
+    const tid = seg?.transformer_ids?.[0];
+    const c = tid ? this.trCoord.get(tid) : undefined;
+    if (c) return c;
+    const d = this.meta.crews[0].depot;
+    return [d.lon, d.lat];
+  }
+
+  /**
+   * Seed the Live board so "normal operations" is realistic: two crews already
+   * out on planned maintenance, plus a few small unscheduled outages waiting for
+   * dispatch. Maintenance is planned work (no customer impact) — it is filtered
+   * out of the fault/de-energization logic in the UI.
+   */
+  private seedLive(): void {
+    const seed = this.meta.liveSeed;
+    if (!seed) return;
+    const now = new Date(this.start.getTime() + seed.startOffsetMin * 60000);
+    this.simClock = now;
+    this.speed = seed.speed ?? 12;
+    this.playing = true;
+    this.status = 'running';
+
+    for (const m of seed.maintenance) {
+      const seg = this.topo.segments[m.seg_id];
+      const [lon, lat] = m.lat != null && m.lon != null ? [m.lon, m.lat] : this.segCoord(m.seg_id);
+      const startTs = new Date(now.getTime() + m.startOffsetMin * 60000);
+      this.incidents.set(m.job_id, {
+        incident_id: m.job_id,
+        seg_id: m.seg_id,
+        feeder_id: m.feeder_id,
+        ss_id: m.ss_id,
+        fault_type: 'scheduled_maintenance',
+        status: 'onsite',
+        affected_kp: 0,
+        affected_tr: seg?.transformer_ids.length ?? 0,
+        repair_effort_min: m.durationMin,
+        required_skill: m.requiredSkill,
+        lat,
+        lon,
+        crew_id: m.crew_id,
+        eta_min: 0,
+        started_at: startTs.toISOString(),
+        restored_at: null,
+        reserveNext: false,
+        reserved_crew_id: null,
+      });
+      this.fired.add(m.job_id);
+      const crew = this.crews.get(m.crew_id);
+      if (crew) {
+        crew.status = 'onsite';
+        crew.current_incident_id = m.job_id;
+        crew.lat = lat;
+        crew.lon = lon;
+        crew.locationId = m.job_id;
+        this.onsiteAt.set(m.crew_id, startTs);
+      }
+      this.emitAt(startTs.toISOString(), 'crew_status', m.crew_id, m.feeder_id, {
+        assigned: m.job_id,
+        eta_min: 0,
+        maintenance: true,
+        title: m.title,
+      });
+      this.emitAt(startTs.toISOString(), 'crew_status', m.crew_id, m.feeder_id, { onsite: m.job_id });
+    }
+
+    for (const f of seed.incidents) {
+      const seg = this.topo.segments[f.seg_id];
+      const [lon, lat] = f.lat != null && f.lon != null ? [f.lon, f.lat] : this.segCoord(f.seg_id);
+      const startTs = new Date(now.getTime() + f.startOffsetMin * 60000);
+      this.incidents.set(f.incident_id, {
+        incident_id: f.incident_id,
+        seg_id: f.seg_id,
+        feeder_id: f.feeder_id,
+        ss_id: f.ss_id,
+        fault_type: f.fault_type,
+        status: 'open',
+        affected_kp: seg?.kayttopaikka_count ?? 0,
+        affected_tr: seg?.transformer_ids.length ?? 0,
+        repair_effort_min: f.repair_effort_min,
+        required_skill: f.requiredSkill,
+        lat,
+        lon,
+        crew_id: null,
+        eta_min: null,
+        started_at: startTs.toISOString(),
+        restored_at: null,
+        reserveNext: false,
+        reserved_crew_id: null,
+      });
+      this.fired.add(f.incident_id);
+      this.emitAt(startTs.toISOString(), 'fault', f.seg_id, f.feeder_id, {
+        incident_id: f.incident_id,
+        type: f.fault_type,
+        kp: seg?.kayttopaikka_count ?? 0,
+      });
+    }
+    // Newest event first for the ticker.
+    this.events.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
   }
 
   play(): void {
@@ -179,10 +298,12 @@ export class SimDriver {
     if (!this.playing || this.status === 'done') return;
     this.simClock = new Date(this.simClock.getTime() + dtRealSec * this.speed * 1000);
     const elapsedMin = (this.simClock.getTime() - this.start.getTime()) / 60000;
-    this.fireFaults(elapsedMin);
-    if (this.auto) this.autoDispatch();
+    if (this.mode === 'storm') {
+      this.fireFaults(elapsedMin);
+      if (this.auto) this.autoDispatch();
+    }
     this.moveCrews(dtRealSec * this.speed);
-    this.checkDone(elapsedMin);
+    if (this.mode === 'storm') this.checkDone(elapsedMin);
     this.persist?.scenario({ sim_clock: this.simClock, status: this.status }).catch(() => {});
   }
 
@@ -302,7 +423,7 @@ export class SimDriver {
     let bestKm = Infinity;
     for (const inc of this.incidents.values()) {
       if (inc.status !== 'open') continue;
-      if (!((inc.reserveNext || this.auto) && crew.skills.includes(inc.required_skill))) continue;
+      if (!((inc.reserveNext || (this.auto && this.mode === 'storm')) && crew.skills.includes(inc.required_skill))) continue;
       const km = haversineKm(crew.lat, crew.lon, inc.lat, inc.lon);
       if (km < bestKm) {
         bestKm = km;
@@ -420,6 +541,12 @@ export class SimDriver {
     this.persist?.event({ ts: this.simClock, event_type: type, entity_id, feeder_id, payload: JSON.stringify(payload) }).catch(() => {});
   }
 
+  /** Emit a historic event (used when seeding the live board). */
+  private emitAt(ts: string, type: string, entity_id: string, feeder_id: string | null, payload: Record<string, unknown>): void {
+    this.events.unshift({ ts, event_type: type, entity_id, feeder_id, payload });
+    if (this.events.length > 150) this.events.pop();
+  }
+
   private incidentRow(inc: IncidentState): Record<string, unknown> {
     return {
       incident_id: inc.incident_id,
@@ -465,6 +592,8 @@ export class SimDriver {
       started_at: i.started_at,
       restored_at: i.restored_at,
       reserved_crew_id: i.reserveNext ? i.reserved_crew_id : null,
+      lat: i.lat,
+      lon: i.lon,
     }));
     return {
       scenario: {

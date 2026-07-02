@@ -66,26 +66,33 @@ export default function App() {
 
   const segChildren = useMemo(() => (assets ? buildSegmentChildren(assets.feeders) : null), [assets]);
 
+  // Scheduled maintenance occupies crews but is not an electrical fault — keep
+  // it out of the fault/de-energization/queue logic (it shows only on the Gantt).
+  const faults = useMemo(
+    () => live.incidents.filter((i) => i.fault_type !== 'scheduled_maintenance'),
+    [live.incidents]
+  );
+
   const de = useMemo(
-    () => (assets ? deEnergizedFromIncidents(assets.topology, live.incidents) : null),
-    [assets, live.incidents]
+    () => (assets ? deEnergizedFromIncidents(assets.topology, faults) : null),
+    [assets, faults]
   );
   const deadSegments = useMemo(
-    () => (segChildren ? deadSegmentsFromIncidents(segChildren, live.incidents) : new Set<string>()),
-    [segChildren, live.incidents]
+    () => (segChildren ? deadSegmentsFromIncidents(segChildren, faults) : new Set<string>()),
+    [segChildren, faults]
   );
   const highlightSegments = useMemo(() => {
     if (!segChildren || !selected) return new Set<string>();
-    const inc = live.incidents.find((i) => i.incident_id === selected);
+    const inc = faults.find((i) => i.incident_id === selected);
     return inc ? new Set(subtreeSegments(segChildren, inc.seg_id)) : new Set<string>();
-  }, [segChildren, selected, live.incidents]);
+  }, [segChildren, selected, faults]);
 
   const kpis: Kpis = useMemo(() => {
-    const active = live.incidents.filter((i) => i.status !== 'restored');
+    const active = faults.filter((i) => i.status !== 'restored');
     const comp =
       assets && live.scenario
         ? projectedCompensationEur(
-            live.incidents,
+            faults,
             live.scenario.sim_clock,
             assets.municipality.compensation.assumedAnnualDistributionFeeEur,
             assets.municipality.compensation.tiers,
@@ -101,8 +108,8 @@ export default function App() {
   }, [live, de, assets]);
 
   const sub: KpiSub = useMemo(() => {
-    const active = live.incidents.filter((i) => i.status !== 'restored');
-    const restoredList = live.incidents.filter((i) => i.status === 'restored');
+    const active = faults.filter((i) => i.status !== 'restored');
+    const restoredList = faults.filter((i) => i.status === 'restored');
     const lastRestored = restoredList.map((i) => i.restored_at).filter(Boolean).sort().pop() ?? null;
     const totalKp = assets?.topology.counts.kayttopaikat ?? 0;
     const now = live.scenario ? new Date(live.scenario.sim_clock).getTime() : 0;
@@ -123,13 +130,13 @@ export default function App() {
   const gantt = useMemo(() => buildCrewGantt(live.events, live.crews, live.incidents), [live.events, live.crews, live.incidents]);
   const alerts = useMemo(() => toAlerts(live.events), [live.events]);
 
-  const selectedIncident = live.incidents.find((i) => i.incident_id === selected) ?? null;
+  const selectedIncident = faults.find((i) => i.incident_id === selected) ?? null;
   const suggestions: Record<string, Suggestion | null> = useMemo(() => {
     if (!assets) return {};
     const out: Record<string, Suggestion | null> = {};
-    for (const i of live.incidents) if (i.status === 'open') out[i.incident_id] = suggestCrew(assets, live.crews, i);
+    for (const i of faults) if (i.status === 'open') out[i.incident_id] = suggestCrew(assets, live.crews, i);
     return out;
-  }, [assets, live.crews, live.incidents]);
+  }, [assets, live.crews, faults]);
   const suggested = selectedIncident ? suggestions[selectedIncident.incident_id] ?? null : null;
 
   // For open incidents with no idle matching crew, preview which busy crew
@@ -138,14 +145,14 @@ export default function App() {
     const d = driverRef.current;
     if (!d) return {};
     const out: Record<string, ReserveHint | null> = {};
-    for (const i of live.incidents) {
+    for (const i of faults) {
       if (i.status === 'open' && !suggestions[i.incident_id] && !i.reserved_crew_id) {
         out[i.incident_id] = d.reserveSuggestion(i.incident_id);
       }
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live.incidents, suggestions]);
+  }, [faults, suggestions]);
   const reserveSuggested = selectedIncident ? reserveSuggestions[selectedIncident.incident_id] ?? null : null;
 
   function drive(fn: (d: SimDriver) => void) {
@@ -162,7 +169,7 @@ export default function App() {
     if (m === mode) return;
     setMode(m);
     setSelected(null);
-    drive((d) => d.reset()); // storm → back to start; live → clean normal-ops grid
+    drive((d) => d.setMode(m)); // storm ⇄ live: reset + (live) seed normal-ops board
   }
 
   if (error) return <div className="fullscreen error">Error: {error}</div>;
@@ -185,7 +192,7 @@ export default function App() {
           deadSegments={deadSegments}
           deadTransformers={de?.transformers ?? new Set()}
           highlightSegments={highlightSegments}
-          incidents={live.incidents}
+          incidents={faults}
           crews={live.crews}
           mode={mode}
           stormElapsedMs={(live.scenario?.elapsed_min ?? 0) * 60000}
@@ -208,7 +215,7 @@ export default function App() {
           />
         )}
         <IncidentQueue
-          incidents={live.incidents}
+          incidents={faults}
           suggestions={suggestions}
           reserveSuggestions={reserveSuggestions}
           simNowIso={live.scenario?.sim_clock}

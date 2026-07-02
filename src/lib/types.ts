@@ -31,6 +31,8 @@ export interface Incident {
   started_at: string | null;
   restored_at: string | null;
   reserved_crew_id?: string | null; // queued "next free" crew (display hint)
+  lat?: number;
+  lon?: number;
 }
 
 export interface Crew {
@@ -110,6 +112,38 @@ export interface ScenarioMeta {
     fault_type: string;
     requiredSkill?: string;
   }[];
+  // Seeds the Live / normal-operations board: a couple of crews on planned
+  // maintenance plus a few small unscheduled outages, so "live" isn't an empty
+  // board. Coordinates are resolved from topology at runtime.
+  liveSeed?: {
+    startOffsetMin: number; // Live clock starts this far into the 14:00 shift
+    speed: number; // playback multiplier for the live board
+    maintenance: {
+      job_id: string;
+      crew_id: string;
+      title: string;
+      feeder_id: string;
+      ss_id: string;
+      seg_id: string;
+      requiredSkill: string;
+      startOffsetMin: number; // relative to live "now" (negative = already underway)
+      durationMin: number;
+      lat?: number;
+      lon?: number;
+    }[];
+    incidents: {
+      incident_id: string;
+      seg_id: string;
+      feeder_id: string;
+      ss_id: string;
+      fault_type: string;
+      requiredSkill: string;
+      startOffsetMin: number; // negative = started in the recent past
+      repair_effort_min: number;
+      lat?: number;
+      lon?: number;
+    }[];
+  };
 }
 
 export interface CompensationTier {

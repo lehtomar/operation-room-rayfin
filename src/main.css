@@ -71,6 +71,7 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(-
 .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
 .badge-sub { font-weight: 500; color: #e59b9b; font-size: 10px; letter-spacing: 0; margin-left: 2px; }
 .badge.badge-ok { background: #0c2417; color: #86efac; border-color: #14532d; }
+.badge.minor { background: #2a2113; color: #fcd88b; border-color: #7c5a12; }
 .badge-live .dot { animation: badgepulse 1.4s infinite; }
 @keyframes badgepulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,77,79,0.6);} 50%{ box-shadow: 0 0 0 5px rgba(255,77,79,0);} }
 
@@ -185,6 +186,9 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(-
 .cg-track.drop { background: rgba(56,189,248,0.12); outline: 1px dashed var(--accent); }
 .gblock { position: absolute; top: 4px; height: 16px; background: #1c3a2b; border: 1px solid var(--ok); border-radius: 3px; overflow: hidden; display: flex; align-items: center; }
 .gblock.done { background: #16212e; border-color: #334155; opacity: 0.8; }
+.gblock.maint { background: #16283a; border-color: #3b82f6; }
+.gblock.maint .gb-label { color: #bfdbfe; }
+.gblock.maint.done { background: #16212e; border-color: #334155; }
 .gb-enroute { position: absolute; left: 0; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, rgba(245,165,36,0.4) 0 4px, transparent 4px 8px); }
 .gb-proj { position: absolute; top: 0; bottom: 0; right: 0; background: repeating-linear-gradient(45deg, rgba(53,208,127,0.22) 0 5px, transparent 5px 10px); border-left: 1px dashed var(--ok); }
 .gb-label { position: relative; font-size: 9px; padding: 0 4px; color: #cbf3dd; white-space: nowrap; }

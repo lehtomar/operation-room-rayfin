@@ -116,4 +116,66 @@ describe('SimDriver', () => {
     expect(crew.status).toBe('enroute');
     expect(parseFloat(crew.lat)).toBeGreaterThan(61.55);
   });
+
+  it('seeds the Live board with maintenance crews and unscheduled incidents', () => {
+    const a = fakeAssets() as unknown as {
+      scenario: {
+        crews: unknown[];
+        liveSeed: unknown;
+      };
+    };
+    a.scenario.crews = [
+      { crew_id: 'K-1', callsign: 'T-1', skills: ['tree', 'line'], depot: { lat: 61.5, lon: 25.7 } },
+      { crew_id: 'K-2', callsign: 'T-2', skills: ['hv', 'line'], depot: { lat: 61.5, lon: 25.7 } },
+    ];
+    a.scenario.liveSeed = {
+      startOffsetMin: 90,
+      speed: 12,
+      maintenance: [
+        {
+          job_id: 'MNT-1',
+          crew_id: 'K-2',
+          title: 'Inspection',
+          feeder_id: 'F1',
+          ss_id: 'SS',
+          seg_id: 'S1',
+          requiredSkill: 'hv',
+          startOffsetMin: -30,
+          durationMin: 120,
+          lat: 61.55,
+          lon: 25.6,
+        },
+      ],
+      incidents: [
+        {
+          incident_id: 'LIVE-1',
+          seg_id: 'S1',
+          feeder_id: 'F1',
+          ss_id: 'SS',
+          fault_type: 'tree_on_line',
+          requiredSkill: 'tree',
+          startOffsetMin: -15,
+          repair_effort_min: 60,
+          lat: 61.53,
+          lon: 25.8,
+        },
+      ],
+    };
+    const d = new SimDriver(a as unknown as GridAssets, null);
+    d.setMode('live');
+    const s = d.snapshot();
+    // maintenance crew is onsite; the other crew stays available
+    expect(s.crews.find((c) => c.crew_id === 'K-2')?.status).toBe('onsite');
+    expect(s.crews.find((c) => c.crew_id === 'K-1')?.status).toBe('idle');
+    // the unscheduled incident is open with real affected käyttöpaikat
+    const live1 = s.incidents.find((i) => i.incident_id === 'LIVE-1')!;
+    expect(live1.status).toBe('open');
+    expect(live1.affected_kp).toBe(3);
+    // maintenance shows as an incident but with zero customer impact
+    const mnt = s.incidents.find((i) => i.incident_id === 'MNT-1')!;
+    expect(mnt.fault_type).toBe('scheduled_maintenance');
+    expect(mnt.affected_kp).toBe(0);
+    // the live board is running so dispatched crews move
+    expect(s.scenario?.playing).toBe(true);
+  });
 });

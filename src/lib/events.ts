@@ -4,6 +4,7 @@ const FAULT_LABEL: Record<string, string> = {
   tree_on_line: 'Tree on line',
   broken_pole: 'Broken pole',
   transformer_failure: 'Transformer failure',
+  scheduled_maintenance: 'Scheduled maintenance',
 };
 
 function hhmm(iso: string): string {
@@ -52,6 +53,7 @@ export function toAlerts(events: GridEventRow[]): AlertItem[] {
 export interface GanttBlock {
   incident: string;
   feeder: string | null;
+  kind: 'incident' | 'maintenance';
   startMs: number;
   onsiteMs: number | null;
   endMs: number | null; // null = still ongoing (actual restoration time)
@@ -84,6 +86,7 @@ export function buildCrewGantt(
       const block: GanttBlock = {
         incident: String(p.assigned),
         feeder: e.feeder_id,
+        kind: p.maintenance ? 'maintenance' : 'incident',
         startMs: t,
         onsiteMs: null,
         endMs: null,

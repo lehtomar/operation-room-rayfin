@@ -102,16 +102,17 @@ export function CrewPanel(props: CrewPanelProps) {
                 const enroutePct = Math.min(100, Math.max(0, ((b.estOnsiteMs - b.startMs) / span) * 100));
                 const nowPct = Math.min(100, Math.max(0, ((now - b.startMs) / span) * 100));
                 const label = restored ? clock(b.endMs as number) : `~${clock(b.estEndMs)}`;
+                const maint = b.kind === 'maintenance';
                 return (
                   <div
                     key={idx}
-                    className={`gblock ${restored ? 'done' : ''}`}
+                    className={`gblock ${restored ? 'done' : ''} ${maint ? 'maint' : ''}`}
                     style={{ left: `${left}%`, width: `${width}%` }}
-                    title={`${b.incident} · ${b.feeder ?? ''} · ${restored ? 'restored' : 'est. complete'} ${label}`}
+                    title={`${maint ? 'Scheduled maintenance' : b.incident} · ${b.feeder ?? ''} · ${restored ? (maint ? 'completed' : 'restored') : maint ? 'est. done' : 'est. complete'} ${label}`}
                   >
                     <div className="gb-enroute" style={{ width: `${enroutePct}%` }} />
                     {!restored && <div className="gb-proj" style={{ left: `${nowPct}%` }} />}
-                    <span className="gb-label">{b.feeder ?? b.incident} {label}</span>
+                    <span className="gb-label">{maint ? 'Maint' : b.feeder ?? b.incident} {label}</span>
                   </div>
                 );
               })}

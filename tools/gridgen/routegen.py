@@ -80,6 +80,12 @@ def main():
     for f in scenario["faults"]:
         points[f["incident_id"]] = (f["lat"], f["lon"])
         fault_ids.append(f["incident_id"])
+    # Live-board unscheduled incidents are also dispatch destinations.
+    for f in scenario.get("liveSeed", {}).get("incidents", []):
+        if f.get("lat") is None or f.get("lon") is None:
+            continue
+        points[f["incident_id"]] = (f["lat"], f["lon"])
+        fault_ids.append(f["incident_id"])
 
     node_of = {}
     for pid, (lat, lon) in points.items():

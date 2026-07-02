@@ -536,10 +536,12 @@ function faultsFC(
   coords: Record<string, [number, number]>,
   selected: string | null
 ): FeatureCollection {
+  const coordFor = (i: Incident): [number, number] | null =>
+    i.lon != null && i.lat != null ? [i.lon, i.lat] : coords[i.incident_id] ?? null;
   return {
     type: 'FeatureCollection',
     features: incidents
-      .filter((i) => i.status !== 'restored' && coords[i.incident_id])
+      .filter((i) => i.status !== 'restored' && coordFor(i))
       .map((i) => ({
         type: 'Feature',
         properties: {
@@ -547,7 +549,7 @@ function faultsFC(
           fault_type: i.fault_type,
           selected: i.incident_id === selected,
         },
-        geometry: { type: 'Point', coordinates: coords[i.incident_id] },
+        geometry: { type: 'Point', coordinates: coordFor(i) as [number, number] },
       })),
   };
 }

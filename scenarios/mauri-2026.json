@@ -11,41 +11,350 @@
     "name": "Mauri",
     "direction": "NW-SE",
     "warningPolygon": [
-      [25.35, 61.72],
-      [25.95, 61.66],
-      [25.98, 61.40],
-      [25.40, 61.46]
+      [
+        25.35,
+        61.72
+      ],
+      [
+        25.95,
+        61.66
+      ],
+      [
+        25.98,
+        61.4
+      ],
+      [
+        25.4,
+        61.46
+      ]
     ],
     "front": [
-      { "offsetMin": 0, "line": [[25.35, 61.78], [25.70, 61.70]] },
-      { "offsetMin": 45, "line": [[25.45, 61.66], [25.80, 61.56]] },
-      { "offsetMin": 90, "line": [[25.55, 61.54], [25.90, 61.45]] },
-      { "offsetMin": 150, "line": [[25.70, 61.42], [26.00, 61.34]] }
+      {
+        "offsetMin": 0,
+        "line": [
+          [
+            25.35,
+            61.78
+          ],
+          [
+            25.7,
+            61.7
+          ]
+        ]
+      },
+      {
+        "offsetMin": 45,
+        "line": [
+          [
+            25.45,
+            61.66
+          ],
+          [
+            25.8,
+            61.56
+          ]
+        ]
+      },
+      {
+        "offsetMin": 90,
+        "line": [
+          [
+            25.55,
+            61.54
+          ],
+          [
+            25.9,
+            61.45
+          ]
+        ]
+      },
+      {
+        "offsetMin": 150,
+        "line": [
+          [
+            25.7,
+            61.42
+          ],
+          [
+            26.0,
+            61.34
+          ]
+        ]
+      }
     ],
     "wind": [
-      { "offsetMin": 0, "speed_ms": 9, "gust_ms": 15, "dir_deg": 315 },
-      { "offsetMin": 30, "speed_ms": 14, "gust_ms": 23, "dir_deg": 320 },
-      { "offsetMin": 60, "speed_ms": 18, "gust_ms": 29, "dir_deg": 325 },
-      { "offsetMin": 90, "speed_ms": 16, "gust_ms": 26, "dir_deg": 330 },
-      { "offsetMin": 150, "speed_ms": 11, "gust_ms": 18, "dir_deg": 340 },
-      { "offsetMin": 240, "speed_ms": 7, "gust_ms": 11, "dir_deg": 350 }
+      {
+        "offsetMin": 0,
+        "speed_ms": 9,
+        "gust_ms": 15,
+        "dir_deg": 315
+      },
+      {
+        "offsetMin": 30,
+        "speed_ms": 14,
+        "gust_ms": 23,
+        "dir_deg": 320
+      },
+      {
+        "offsetMin": 60,
+        "speed_ms": 18,
+        "gust_ms": 29,
+        "dir_deg": 325
+      },
+      {
+        "offsetMin": 90,
+        "speed_ms": 16,
+        "gust_ms": 26,
+        "dir_deg": 330
+      },
+      {
+        "offsetMin": 150,
+        "speed_ms": 11,
+        "gust_ms": 18,
+        "dir_deg": 340
+      },
+      {
+        "offsetMin": 240,
+        "speed_ms": 7,
+        "gust_ms": 11,
+        "dir_deg": 350
+      }
     ]
   },
   "crews": [
-    { "crew_id": "K-1", "callsign": "Sysmä-1", "skills": ["line", "tree"], "depot": { "lat": 61.5083, "lon": 25.7072 }, "shift_start": "2026-01-15T14:00:00+02:00", "shift_end": "2026-01-15T22:00:00+02:00" },
-    { "crew_id": "K-2", "callsign": "Sysmä-2", "skills": ["hv", "line"], "depot": { "lat": 61.5083, "lon": 25.7072 }, "shift_start": "2026-01-15T14:00:00+02:00", "shift_end": "2026-01-15T22:00:00+02:00" },
-    { "crew_id": "K-3", "callsign": "Sysmä-3", "skills": ["tree"], "depot": { "lat": 61.5083, "lon": 25.7072 }, "shift_start": "2026-01-15T14:00:00+02:00", "shift_end": "2026-01-15T22:00:00+02:00" },
-    { "crew_id": "K-4", "callsign": "Nuoramoinen-1", "skills": ["line", "tree"], "depot": { "lat": 61.4348, "lon": 25.8561 }, "shift_start": "2026-01-15T14:00:00+02:00", "shift_end": "2026-01-15T22:00:00+02:00" },
-    { "crew_id": "K-5", "callsign": "Nuoramoinen-2", "skills": ["hv", "line"], "depot": { "lat": 61.4348, "lon": 25.8561 }, "shift_start": "2026-01-15T14:00:00+02:00", "shift_end": "2026-01-15T22:00:00+02:00" },
-    { "crew_id": "K-6", "callsign": "Reservi-1", "skills": ["tree", "line"], "depot": { "lat": 61.5083, "lon": 25.7072 }, "shift_start": "2026-01-15T14:00:00+02:00", "shift_end": "2026-01-15T22:00:00+02:00" }
+    {
+      "crew_id": "K-1",
+      "callsign": "Sysmä-1",
+      "skills": [
+        "line",
+        "tree"
+      ],
+      "depot": {
+        "lat": 61.5083,
+        "lon": 25.7072
+      },
+      "shift_start": "2026-01-15T14:00:00+02:00",
+      "shift_end": "2026-01-15T22:00:00+02:00"
+    },
+    {
+      "crew_id": "K-2",
+      "callsign": "Sysmä-2",
+      "skills": [
+        "hv",
+        "line"
+      ],
+      "depot": {
+        "lat": 61.5083,
+        "lon": 25.7072
+      },
+      "shift_start": "2026-01-15T14:00:00+02:00",
+      "shift_end": "2026-01-15T22:00:00+02:00"
+    },
+    {
+      "crew_id": "K-3",
+      "callsign": "Sysmä-3",
+      "skills": [
+        "tree"
+      ],
+      "depot": {
+        "lat": 61.5083,
+        "lon": 25.7072
+      },
+      "shift_start": "2026-01-15T14:00:00+02:00",
+      "shift_end": "2026-01-15T22:00:00+02:00"
+    },
+    {
+      "crew_id": "K-4",
+      "callsign": "Nuoramoinen-1",
+      "skills": [
+        "line",
+        "tree"
+      ],
+      "depot": {
+        "lat": 61.4348,
+        "lon": 25.8561
+      },
+      "shift_start": "2026-01-15T14:00:00+02:00",
+      "shift_end": "2026-01-15T22:00:00+02:00"
+    },
+    {
+      "crew_id": "K-5",
+      "callsign": "Nuoramoinen-2",
+      "skills": [
+        "hv",
+        "line"
+      ],
+      "depot": {
+        "lat": 61.4348,
+        "lon": 25.8561
+      },
+      "shift_start": "2026-01-15T14:00:00+02:00",
+      "shift_end": "2026-01-15T22:00:00+02:00"
+    },
+    {
+      "crew_id": "K-6",
+      "callsign": "Reservi-1",
+      "skills": [
+        "tree",
+        "line"
+      ],
+      "depot": {
+        "lat": 61.5083,
+        "lon": 25.7072
+      },
+      "shift_start": "2026-01-15T14:00:00+02:00",
+      "shift_end": "2026-01-15T22:00:00+02:00"
+    }
   ],
   "faults": [
-    { "incident_id": "INC-01", "offsetMin": 8, "fault_type": "tree_on_line", "seg_id": "F02-S13", "feeder_id": "F02", "ss_id": "SS-SYSMA", "lat": 61.690183, "lon": 25.649326, "repair_effort_min": 180, "requiredSkill": "tree", "note": "Kaukainen saaristo-/järvenrantavika — hidas saavuttaa (lakeside, slow to reach)." },
-    { "incident_id": "INC-02", "offsetMin": 15, "fault_type": "tree_on_line", "seg_id": "F02-S25", "feeder_id": "F02", "ss_id": "SS-SYSMA", "lat": 61.650850, "lon": 25.616174, "repair_effort_min": 75, "requiredSkill": "tree", "note": "Pohjoinen haara, puita linjalla." },
-    { "incident_id": "INC-03", "offsetMin": 30, "fault_type": "broken_pole", "seg_id": "F01-S30", "feeder_id": "F01", "ss_id": "SS-SYSMA", "lat": 61.565260, "lon": 25.647056, "repair_effort_min": 90, "requiredSkill": "line", "note": "Pylväsvaurio myrskyrintaman takana." },
-    { "incident_id": "INC-04", "offsetMin": 45, "fault_type": "tree_on_line", "seg_id": "F04-S08", "feeder_id": "F04", "ss_id": "SS-SYSMA", "lat": 61.455354, "lon": 25.661785, "repair_effort_min": 60, "requiredSkill": "tree", "note": "Keskusta-eteläinen haara." },
-    { "incident_id": "INC-05", "offsetMin": 55, "fault_type": "transformer_failure", "seg_id": "F04-S09", "feeder_id": "F04", "ss_id": "SS-SYSMA", "lat": 61.508255, "lon": 25.707194, "repair_effort_min": 120, "requiredSkill": "hv", "note": "Suuri syöttölähdön laukeaminen — 600+ käyttöpaikkaa pimeänä." },
-    { "incident_id": "INC-06", "offsetMin": 70, "fault_type": "tree_on_line", "seg_id": "F03-S25", "feeder_id": "F03", "ss_id": "SS-SYSMA", "lat": 61.531356, "lon": 25.832057, "repair_effort_min": 70, "requiredSkill": "tree", "note": "Itäinen haara." },
-    { "incident_id": "INC-07", "offsetMin": 85, "fault_type": "broken_pole", "seg_id": "F06-S10", "feeder_id": "F06", "ss_id": "SS-NUORAMOINEN", "lat": 61.435952, "lon": 25.864689, "repair_effort_min": 80, "requiredSkill": "line", "note": "Nuoramoisten lähdön kaakkoishaara." }
-  ]
+    {
+      "incident_id": "INC-01",
+      "offsetMin": 8,
+      "fault_type": "tree_on_line",
+      "seg_id": "F02-S13",
+      "feeder_id": "F02",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.690183,
+      "lon": 25.649326,
+      "repair_effort_min": 180,
+      "requiredSkill": "tree",
+      "note": "Kaukainen saaristo-/järvenrantavika — hidas saavuttaa (lakeside, slow to reach)."
+    },
+    {
+      "incident_id": "INC-02",
+      "offsetMin": 15,
+      "fault_type": "tree_on_line",
+      "seg_id": "F02-S25",
+      "feeder_id": "F02",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.65085,
+      "lon": 25.616174,
+      "repair_effort_min": 75,
+      "requiredSkill": "tree",
+      "note": "Pohjoinen haara, puita linjalla."
+    },
+    {
+      "incident_id": "INC-03",
+      "offsetMin": 30,
+      "fault_type": "broken_pole",
+      "seg_id": "F01-S30",
+      "feeder_id": "F01",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.56526,
+      "lon": 25.647056,
+      "repair_effort_min": 90,
+      "requiredSkill": "line",
+      "note": "Pylväsvaurio myrskyrintaman takana."
+    },
+    {
+      "incident_id": "INC-04",
+      "offsetMin": 45,
+      "fault_type": "tree_on_line",
+      "seg_id": "F04-S08",
+      "feeder_id": "F04",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.455354,
+      "lon": 25.661785,
+      "repair_effort_min": 60,
+      "requiredSkill": "tree",
+      "note": "Keskusta-eteläinen haara."
+    },
+    {
+      "incident_id": "INC-05",
+      "offsetMin": 55,
+      "fault_type": "transformer_failure",
+      "seg_id": "F04-S09",
+      "feeder_id": "F04",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.508255,
+      "lon": 25.707194,
+      "repair_effort_min": 120,
+      "requiredSkill": "hv",
+      "note": "Suuri syöttölähdön laukeaminen — 600+ käyttöpaikkaa pimeänä."
+    },
+    {
+      "incident_id": "INC-06",
+      "offsetMin": 70,
+      "fault_type": "tree_on_line",
+      "seg_id": "F03-S25",
+      "feeder_id": "F03",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.531356,
+      "lon": 25.832057,
+      "repair_effort_min": 70,
+      "requiredSkill": "tree",
+      "note": "Itäinen haara."
+    },
+    {
+      "incident_id": "INC-07",
+      "offsetMin": 85,
+      "fault_type": "broken_pole",
+      "seg_id": "F06-S10",
+      "feeder_id": "F06",
+      "ss_id": "SS-NUORAMOINEN",
+      "lat": 61.435952,
+      "lon": 25.864689,
+      "repair_effort_min": 80,
+      "requiredSkill": "line",
+      "note": "Nuoramoisten lähdön kaakkoishaara."
+    }
+  ],
+  "liveSeed": {
+    "startOffsetMin": 95,
+    "speed": 12,
+    "maintenance": [
+      {
+        "job_id": "MNT-01",
+        "crew_id": "K-2",
+        "title": "Planned transformer inspection",
+        "feeder_id": "F01",
+        "ss_id": "SS-SYSMA",
+        "seg_id": "F01-S22",
+        "requiredSkill": "hv",
+        "startOffsetMin": -50,
+        "durationMin": 160,
+        "lat": 61.56413,
+        "lon": 25.58536
+      },
+      {
+        "job_id": "MNT-02",
+        "crew_id": "K-4",
+        "title": "Overhead line refurbishment",
+        "feeder_id": "F06",
+        "ss_id": "SS-NUORAMOINEN",
+        "seg_id": "F06-S26",
+        "requiredSkill": "line",
+        "startOffsetMin": -35,
+        "durationMin": 175,
+        "lat": 61.46306,
+        "lon": 25.79727
+      }
+    ],
+    "incidents": [
+      {
+        "incident_id": "LIVE-01",
+        "seg_id": "F03-S17",
+        "feeder_id": "F03",
+        "ss_id": "SS-SYSMA",
+        "fault_type": "tree_on_line",
+        "requiredSkill": "tree",
+        "startOffsetMin": -22,
+        "repair_effort_min": 70,
+        "lat": 61.53046,
+        "lon": 25.83984
+      },
+      {
+        "incident_id": "LIVE-02",
+        "seg_id": "F01-S38",
+        "feeder_id": "F01",
+        "ss_id": "SS-SYSMA",
+        "fault_type": "broken_pole",
+        "requiredSkill": "line",
+        "startOffsetMin": -12,
+        "repair_effort_min": 85,
+        "lat": 61.60249,
+        "lon": 25.54475
+      }
+    ]
+  }
 }

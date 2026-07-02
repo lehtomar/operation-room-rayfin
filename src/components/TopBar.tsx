@@ -48,7 +48,10 @@ function hm(mins: number | null): string {
 export function TopBar(props: TopBarProps) {
   const { scenario, kpis, sub, wind, fmiWind } = props;
   const live = props.mode === 'live';
-  const stormActive = kpis.activeFaults > 0;
+  // Severity by customer impact — a couple of small faults is a minor day,
+  // a large feeder trip is a major disturbance.
+  const severity: 'major' | 'minor' | 'calm' =
+    kpis.customersOut >= 300 || kpis.activeFaults >= 4 ? 'major' : kpis.activeFaults > 0 ? 'minor' : 'calm';
 
   // one wind chip — scenario wind in replay, live FMI wind in live mode
   const wSpeed = live ? fmiWind?.speed_ms ?? null : wind?.speed_ms ?? null;
@@ -109,9 +112,13 @@ export function TopBar(props: TopBarProps) {
           {wGust != null && <span className="wind-gust">gust {wGust.toFixed(0)}</span>}
           {live && <span className="fmi-tag">FMI</span>}
         </div>
-        {stormActive ? (
+        {severity === 'major' ? (
           <div className="badge major badge-live">
             <span className="dot" /> MAJOR DISTURBANCE
+          </div>
+        ) : severity === 'minor' ? (
+          <div className="badge minor badge-live">
+            <span className="dot" /> MINOR DISTURBANCE
           </div>
         ) : (
           <div className="badge badge-ok">
