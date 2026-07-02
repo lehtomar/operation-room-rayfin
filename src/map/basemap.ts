@@ -70,13 +70,16 @@ export function buildStyle(basemap: BasemapConfig): StyleSpecification {
   return { version: 8, glyphs: GLYPHS, sources, layers };
 }
 
-/** FMI open-data WMS GetMap tile template (latest radar frame). */
-export function radarTiles(ts: number): string {
+/** FMI open-data WMS GetMap tile template for a given radar frame (or latest). */
+export function radarTiles(cacheBust: number, timeIso?: string): string {
+  const time = timeIso ? `&TIME=${timeIso.replace(/\.\d{3}Z$/, 'Z')}` : '';
   return (
     'https://openwms.fmi.fi/geoserver/wms?service=WMS&version=1.1.1&request=GetMap' +
     '&layers=Radar:suomi_dbz_eureffin&styles=&format=image/png&transparent=true' +
-    '&srs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}&cacheBust=' +
-    ts
+    '&srs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}' +
+    time +
+    '&cacheBust=' +
+    cacheBust
   );
 }
 

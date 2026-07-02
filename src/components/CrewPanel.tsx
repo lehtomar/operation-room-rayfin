@@ -47,6 +47,7 @@ export function CrewPanel(props: CrewPanelProps) {
         </span>
       </div>
       <div className="crew-grid">
+        <div className="now-line" style={{ left: `calc(520px + (100% - 520px) * ${nowF})` }} />
         <div className="crew-colhead">CREW</div>
         <div className="crew-colhead">SKILLS</div>
         <div className="crew-colhead">STATUS</div>
@@ -56,7 +57,6 @@ export function CrewPanel(props: CrewPanelProps) {
               {String(h).padStart(2, '0')}:00
             </div>
           ))}
-          <div className="ruler-now" style={{ left: `${nowF * 100}%` }} />
         </div>
 
         {props.crews.map((c) => {
@@ -115,7 +115,6 @@ export function CrewPanel(props: CrewPanelProps) {
                   </div>
                 );
               })}
-              <div className="ruler-now" style={{ left: `${nowF * 100}%` }} />
             </div>,
           ];
         })}

@@ -36,6 +36,19 @@ const STATUS_COLOR: Record<string, string> = {
   offshift: '#475569',
 };
 
+/** Radar frames: last 2 h at 5-min steps, ending at the latest available. */
+function buildRadarFrames(count = 24, stepMin = 5): Date[] {
+  const step = stepMin * 60000;
+  const latest = Math.floor((Date.now() - 5 * 60000) / step) * step;
+  const arr: Date[] = [];
+  for (let i = count - 1; i >= 0; i--) arr.push(new Date(latest - i * step));
+  return arr;
+}
+const RADAR_FRAMES = buildRadarFrames();
+function frameLabel(d: Date): string {
+  return d.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' });
+}
+
 export function MapView(props: MapViewProps) {
   const { assets } = props;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,6 +57,8 @@ export function MapView(props: MapViewProps) {
   const propsRef = useRef(props);
   const [glError, setGlError] = useState<string | null>(null);
   const [basemap, setBasemap] = useState<BasemapMode>('satellite');
+  const [radarIdx, setRadarIdx] = useState(RADAR_FRAMES.length - 1);
+  const [radarPlaying, setRadarPlaying] = useState(false);
   const [visible, setVisible] = useState<Record<string, boolean>>({
     feeders: true,
     transformers: true,
@@ -262,18 +277,27 @@ export function MapView(props: MapViewProps) {
     applyBasemapMode(map, basemap);
   }, [basemap]);
 
-  // --- live radar refresh (latest frame on toggle + every 5 min) ---
+  // --- radar: apply the selected frame (scrub / animate) ---
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current || !visible.radar) return;
-    const refresh = () => {
-      const src = map.getSource('fmi-radar') as unknown as { setTiles?: (t: string[]) => void } | undefined;
-      src?.setTiles?.([radarTiles(Date.now())]);
-    };
-    refresh();
-    const id = setInterval(refresh, 300_000);
-    return () => clearInterval(id);
+    const iso = RADAR_FRAMES[radarIdx]?.toISOString();
+    const src = map.getSource('fmi-radar') as unknown as { setTiles?: (t: string[]) => void } | undefined;
+    src?.setTiles?.([radarTiles(Date.now(), iso)]);
+  }, [visible.radar, radarIdx]);
+
+  // jump to the latest frame when radar is turned on; stop looping when off
+  useEffect(() => {
+    if (visible.radar) setRadarIdx(RADAR_FRAMES.length - 1);
+    else setRadarPlaying(false);
   }, [visible.radar]);
+
+  // animate the radar loop
+  useEffect(() => {
+    if (!radarPlaying) return;
+    const id = setInterval(() => setRadarIdx((i) => (i + 1) % RADAR_FRAMES.length), 650);
+    return () => clearInterval(id);
+  }, [radarPlaying]);
 
   return (
     <div className="map-root" ref={containerRef}>
@@ -312,6 +336,29 @@ export function MapView(props: MapViewProps) {
         <LegendRow swatch={<span className="lg-line route" />} text="Dispatch route" />
         <LegendRow swatch={<span className="lg-line front" />} text="Storm front / FMI" />
       </div>
+      {visible.radar && (
+        <div className="radar-control">
+          <button className="radar-play" onClick={() => setRadarPlaying((p) => !p)} title="Play radar loop">
+            {radarPlaying ? '⏸' : '▶'}
+          </button>
+          <input
+            className="radar-slider"
+            type="range"
+            min={0}
+            max={RADAR_FRAMES.length - 1}
+            value={radarIdx}
+            onChange={(e) => {
+              setRadarPlaying(false);
+              setRadarIdx(Number(e.target.value));
+            }}
+          />
+          <span className="radar-time">
+            {frameLabel(RADAR_FRAMES[radarIdx])}
+            {radarIdx === RADAR_FRAMES.length - 1 ? ' · LIVE' : ''}
+          </span>
+          <span className="radar-tag">RAIN RADAR · FMI</span>
+        </div>
+      )}
     </div>
   );
 }
