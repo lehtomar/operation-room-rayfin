@@ -15,7 +15,7 @@ export class RayfinProvider implements DataProvider {
   constructor(private readonly client: RayfinClient<AppSchema>) {}
 
   async getState(): Promise<LiveState> {
-    const [scenarioRows, incidents, crews] = await Promise.all([
+    const [scenarioRows, incidents, crews, eventRows] = await Promise.all([
       this.client.data.ScenarioState.select([
         'scenario_id',
         'status',
@@ -47,6 +47,15 @@ export class RayfinProvider implements DataProvider {
         'lon',
         'current_incident_id',
       ]).execute(),
+      this.client.data.GridEvent.select([
+        'ts',
+        'event_type',
+        'entity_id',
+        'feeder_id',
+        'payload',
+      ])
+        .orderBy({ ts: 'desc' })
+        .execute(),
     ]);
 
     const s = scenarioRows[0] as unknown as Record<string, unknown> | undefined;
@@ -67,6 +76,13 @@ export class RayfinProvider implements DataProvider {
       wind: null, // computed in App from scenario meta
       incidents: incidents as unknown as Incident[],
       crews: crews as unknown as Crew[],
+      events: (eventRows as unknown as Record<string, unknown>[]).slice(0, 120).map((e) => ({
+        ts: new Date(e.ts as string).toISOString(),
+        event_type: String(e.event_type),
+        entity_id: String(e.entity_id),
+        feeder_id: (e.feeder_id as string) ?? null,
+        payload: e.payload ? safeParse(String(e.payload)) : null,
+      })),
     };
   }
 
@@ -104,5 +120,13 @@ export class RayfinProvider implements DataProvider {
       eta_min: etaMin,
       ts: new Date(),
     });
+  }
+}
+
+function safeParse(s: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
   }
 }

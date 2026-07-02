@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FeatureCollection, Feature } from 'geojson';
 
 import type { GridAssets } from '../grid/assets';
@@ -14,9 +14,18 @@ interface MapViewProps {
   highlightSegments: Set<string>;
   incidents: Incident[];
   crews: Crew[];
+  stormFront: [number, number][] | null;
   selectedIncidentId: string | null;
   onSelectFault: (incidentId: string | null) => void;
 }
+
+const LAYER_GROUPS: { key: string; label: string; layers: string[] }[] = [
+  { key: 'feeders', label: 'MV feeders', layers: ['feeders-live', 'feeders-dead', 'feeders-hl'] },
+  { key: 'transformers', label: 'Transformers', layers: ['transformers'] },
+  { key: 'faults', label: 'Faults', layers: ['faults', 'faults-pulse'] },
+  { key: 'crews', label: 'Crews & routes', layers: ['crews', 'crews-label'] },
+  { key: 'weather', label: 'Weather / FMI', layers: ['warning-fill', 'warning-line', 'front-line'] },
+];
 
 const STATUS_COLOR: Record<string, string> = {
   idle: '#7dd3fc',
@@ -33,6 +42,13 @@ export function MapView(props: MapViewProps) {
   const loadedRef = useRef(false);
   const propsRef = useRef(props);
   const [glError, setGlError] = useState<string | null>(null);
+  const [visible, setVisible] = useState<Record<string, boolean>>({
+    feeders: true,
+    transformers: true,
+    faults: true,
+    crews: true,
+    weather: true,
+  });
   propsRef.current = props;
 
   // fault coordinates by incident_id (from scenario metadata)
@@ -64,6 +80,7 @@ export function MapView(props: MapViewProps) {
       if (String(e?.error?.message ?? '').includes('WebGL')) setGlError('WebGL ei käytettävissä');
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
 
     map.on('load', () => {
       // static sources
@@ -72,6 +89,7 @@ export function MapView(props: MapViewProps) {
       map.addSource('transformers', { type: 'geojson', data: assets.transformers });
       map.addSource('substations', { type: 'geojson', data: assets.substations });
       map.addSource('warning', { type: 'geojson', data: warningFC(assets) });
+      map.addSource('front', { type: 'geojson', data: emptyFC() });
       map.addSource('faults', { type: 'geojson', data: emptyFC() });
       map.addSource('crews', { type: 'geojson', data: emptyFC() });
 
@@ -83,6 +101,11 @@ export function MapView(props: MapViewProps) {
       map.addLayer({
         id: 'warning-line', type: 'line', source: 'warning',
         paint: { 'line-color': '#f59e0b', 'line-opacity': 0.4, 'line-width': 1.5, 'line-dasharray': [3, 3] },
+      });
+      // storm front (moves NW→SE over time)
+      map.addLayer({
+        id: 'front-line', type: 'line', source: 'front',
+        paint: { 'line-color': '#fb923c', 'line-width': 3, 'line-opacity': 0.8, 'line-dasharray': [1.5, 1] },
       });
 
       // käyttöpaikat (dim density dots)
@@ -184,6 +207,7 @@ export function MapView(props: MapViewProps) {
 
       loadedRef.current = true;
       applyUpdate(map, propsRef.current, faultCoords.current);
+      applyVisibility(map, visible);
     });
 
     // pulse animation
@@ -215,15 +239,61 @@ export function MapView(props: MapViewProps) {
     applyUpdate(map, props, faultCoords.current);
   });
 
+  // --- layer visibility ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    applyVisibility(map, visible);
+  }, [visible]);
+
   return (
     <div className="map-root" ref={containerRef}>
       {glError && (
         <div className="gl-error">
-          Karttaa ei voitu piirtää ({glError}). KPI:t ja vikatiedot päivittyvät silti.
+          Map could not render ({glError}). KPIs and incident data still update.
         </div>
       )}
+      <div className="layers-panel">
+        <div className="lp-head">LAYERS</div>
+        {LAYER_GROUPS.map((g) => (
+          <label key={g.key} className="lp-row">
+            <input
+              type="checkbox"
+              checked={visible[g.key]}
+              onChange={(e) => setVisible((v) => ({ ...v, [g.key]: e.target.checked }))}
+            />
+            {g.label}
+          </label>
+        ))}
+      </div>
+      <div className="legend">
+        <LegendRow swatch={<span className="lg-line live" />} text="Feeder energized" />
+        <LegendRow swatch={<span className="lg-line dead" />} text="De-energized" />
+        <LegendRow swatch={<span className="lg-sq ok" />} text="Transformer OK" />
+        <LegendRow swatch={<span className="lg-sq out" />} text="Transformer out" />
+        <LegendRow swatch={<span className="lg-dot fault" />} text="Fault (pulsing)" />
+        <LegendRow swatch={<span className="lg-pill" />} text="Crew (K1…K6)" />
+        <LegendRow swatch={<span className="lg-line front" />} text="Storm front / FMI" />
+      </div>
     </div>
   );
+}
+
+function LegendRow({ swatch, text }: { swatch: ReactNode; text: string }) {
+  return (
+    <div className="lg-row">
+      {swatch}
+      <span>{text}</span>
+    </div>
+  );
+}
+
+function applyVisibility(map: maplibregl.Map, visible: Record<string, boolean>) {
+  for (const g of LAYER_GROUPS) {
+    for (const lyr of g.layers) {
+      if (map.getLayer(lyr)) map.setLayoutProperty(lyr, 'visibility', visible[g.key] ? 'visible' : 'none');
+    }
+  }
 }
 
 function applyUpdate(
@@ -246,6 +316,7 @@ function applyUpdate(
     faultsFC(p.incidents, faultCoords, p.selectedIncidentId)
   );
   (map.getSource('crews') as maplibregl.GeoJSONSource | undefined)?.setData(crewsFC(p.crews));
+  (map.getSource('front') as maplibregl.GeoJSONSource | undefined)?.setData(lineFC(p.stormFront));
 }
 
 function withProps(fc: FeatureCollection, extra: (f: Feature) => Record<string, unknown>): FeatureCollection {
@@ -273,6 +344,14 @@ function warningFC(assets: GridAssets): FeatureCollection {
         geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]]] },
       },
     ],
+  };
+}
+
+function lineFC(coords: [number, number][] | null): FeatureCollection {
+  if (!coords || coords.length < 2) return emptyFC();
+  return {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }],
   };
 }
 

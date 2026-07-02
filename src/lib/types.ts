@@ -42,11 +42,20 @@ export interface Crew {
   current_incident_id: string | null;
 }
 
+export interface GridEventRow {
+  ts: string;
+  event_type: string; // fault | restoration | crew_status | transformer_status
+  entity_id: string;
+  feeder_id: string | null;
+  payload: Record<string, unknown> | null;
+}
+
 export interface LiveState {
   scenario: Scenario | null;
   wind: Wind | null;
   incidents: Incident[];
   crews: Crew[];
+  events: GridEventRow[];
 }
 
 // --- static grid + scenario assets ---

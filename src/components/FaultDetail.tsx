@@ -1,16 +1,21 @@
 import type { Crew, Incident } from '../lib/types';
 
 const FAULT_LABEL: Record<string, string> = {
-  tree_on_line: 'Puu linjalla',
-  broken_pole: 'Pylväsvaurio',
-  transformer_failure: 'Muuntamovika',
+  tree_on_line: 'Tree on line',
+  broken_pole: 'Broken pole',
+  transformer_failure: 'Transformer failure',
+};
+const WORK_LABEL: Record<string, string> = {
+  tree_on_line: 'tree clearing',
+  broken_pole: 'pole replacement · HV work',
+  transformer_failure: 'transformer swap · HV work',
 };
 const STATUS_LABEL: Record<string, string> = {
-  open: 'Avoin',
-  assigned: 'Osoitettu',
-  enroute: 'Matkalla',
-  onsite: 'Paikalla',
-  restored: 'Palautettu',
+  open: 'Unassigned',
+  assigned: 'Assigned',
+  enroute: 'En route',
+  onsite: 'On site',
+  restored: 'Restored',
 };
 
 interface FaultDetailProps {
@@ -21,7 +26,7 @@ interface FaultDetailProps {
   onClose: () => void;
 }
 
-function elapsed(startIso: string | null, nowIso: string | undefined): string {
+function outage(startIso: string | null, nowIso: string | undefined): string {
   if (!startIso || !nowIso) return '–';
   const mins = Math.max(0, Math.round((new Date(nowIso).getTime() - new Date(startIso).getTime()) / 60000));
   const h = Math.floor(mins / 60);
@@ -34,40 +39,39 @@ export function FaultDetail(props: FaultDetailProps) {
     <aside className="detail">
       <div className="detail-head">
         <div>
-          <div className="detail-type">{FAULT_LABEL[i.fault_type] ?? i.fault_type}</div>
-          <div className="detail-sub">
-            {i.incident_id} · syöttö {i.feeder_id} · {i.seg_id}
+          <div className="detail-type">
+            <span className="detail-dot" /> {FAULT_LABEL[i.fault_type] ?? i.fault_type}
           </div>
+          <div className="detail-sub">Feeder {i.feeder_id} · section {i.seg_id}</div>
         </div>
-        <button className="x" onClick={props.onClose}>
-          ✕
-        </button>
+        <button className="x" onClick={props.onClose}>✕</button>
       </div>
 
       <div className="detail-grid">
-        <Stat label="Käyttöpaikkaa pimeänä" value={i.affected_kp.toLocaleString('fi-FI')} tone="danger" />
-        <Stat label="Muuntamoa" value={String(i.affected_tr)} />
-        <Stat label="Kesto" value={elapsed(i.started_at, props.simNowIso)} />
-        <Stat label="Korjausarvio" value={`${i.repair_effort_min} min`} />
+        <Stat label="Affected" value={`${i.affected_kp.toLocaleString('fi-FI')} kp`} tone="danger" />
+        <Stat label="Outage" value={outage(i.started_at, props.simNowIso)} />
       </div>
 
-      <div className="detail-status">
-        <span className={`pill st-${i.status}`}>{STATUS_LABEL[i.status] ?? i.status}</span>
-        {i.crew_id && <span className="assigned">Partio {i.crew_id}{i.eta_min ? ` · ETA ${i.eta_min} min` : ''}</span>}
+      <div className="detail-repair">
+        <div className="dr-label">ESTIMATED REPAIR</div>
+        <div className="dr-value">≈ {i.repair_effort_min} min · {WORK_LABEL[i.fault_type] ?? 'field work'}</div>
       </div>
 
-      {i.status === 'open' && (
-        <div className="suggest">
-          {suggested ? (
-            <button
-              className="dispatch-btn"
-              onClick={() => props.onDispatch(i.incident_id, suggested.crew.crew_id, suggested.etaMin)}
-            >
-              Ehdota partiota: <b>{suggested.crew.callsign}</b> · ETA {suggested.etaMin} min →
-            </button>
-          ) : (
-            <div className="no-crew">Ei vapaata sopivan taidon partiota</div>
-          )}
+      {i.status === 'open' ? (
+        suggested ? (
+          <button
+            className="dispatch-btn"
+            onClick={() => props.onDispatch(i.incident_id, suggested.crew.crew_id, suggested.etaMin)}
+          >
+            Dispatch <b>{suggested.crew.callsign}</b> · ETA {suggested.etaMin} min →
+          </button>
+        ) : (
+          <div className="no-crew">No available crew with the matching skill</div>
+        )
+      ) : (
+        <div className="detail-crew">
+          {i.crew_id} {STATUS_LABEL[i.status]?.toLowerCase()}
+          {i.status === 'enroute' && i.eta_min ? ` · ETA ${i.eta_min} min` : ''}
         </div>
       )}
     </aside>
@@ -77,8 +81,8 @@ export function FaultDetail(props: FaultDetailProps) {
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'danger' }) {
   return (
     <div className={`stat ${tone ?? ''}`}>
-      <div className="stat-value">{value}</div>
       <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
     </div>
   );
 }

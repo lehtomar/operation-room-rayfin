@@ -128,3 +128,34 @@ what I did instead → what the platform should do**.
   whole React root with no error boundary. Wrapped map init in try/catch + an
   in-map fallback so KPIs and incident data keep working regardless. (Not
   Rayfin-specific, but a good default for any map-in-Fabric app.)
+
+## 2026-07-02 — M5: static deploy, reconciliation, wrap-up
+
+### Pleasant: full `rayfin up` static deploy was one clean command
+- `npx rayfin up` built the Vite app, packaged 11 files (2.5 MB), deployed to
+  OneLake-backed static hosting, applied the schema, and appended the hosting URL
+  to `allowedRedirectUris` in `rayfin.yml` — all in one run. Hosting URL served
+  `index.html`, `/data/*.geojson`, and `basemap.json` immediately (HTTP 200).
+
+### Note: two writers on one DB, reconciled by polling
+- The simulator writes state over TDS while the frontend writes dispatch
+  `Assignment`s via GraphQL. The UI applies an **optimistic** "assigned" flip and
+  clears it once the next poll shows the simulator has advanced the incident past
+  `open`. This worked well; the only caveat is that `count()` isn't on the
+  GraphQL client, so every KPI is computed client-side from `select()`ed rows +
+  the static topology closure (fine at this scale).
+
+### Note: the MML WMTS key ships in the deployed static bundle
+- `basemap.local.json` is gitignored, but `sync-assets` copies it into
+  `public/data/basemap.json`, which Vite bundles into `dist/` and the deploy
+  uploads. That's acceptable for a browser-side WMTS key (it's used in tile
+  requests anyway), but a Rayfin-native "public runtime config injected at deploy
+  time" would be cleaner than baking client config into the static bundle.
+
+### Overall
+Rayfin made the **data model → deployed, schema-applied Fabric SQL DB** loop
+genuinely fast (code-first `@entity`, one `rayfin up`, docs-in-MCP). The two
+things that shaped the whole architecture were platform gaps, both logged above:
+**no anonymous/public read on Fabric** (forced a dual dev/prod provider) and
+**no sanctioned headless write path** (used TDS + Entra token). Address those two
+and this class of real-time data app becomes dramatically simpler on Rayfin.

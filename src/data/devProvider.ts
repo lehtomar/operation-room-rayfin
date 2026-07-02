@@ -17,6 +17,7 @@ export class DevProvider implements DataProvider {
       wind: s.wind ?? null,
       incidents: s.incidents ?? [],
       crews: s.crews ?? [],
+      events: s.events ?? [],
     };
   }
 

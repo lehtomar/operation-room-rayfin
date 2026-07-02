@@ -13,6 +13,7 @@ services:
       enabled: false
     allowedRedirectUris:
       - http://localhost:5173
+      - https://close-fawn-c8c9977a06-swedencentral.webapp.fabricapps.net
     fabric:
       enabled: true
   data:
@@ -23,3 +24,7 @@ services:
     folder: dist
     buildCommand: npm run build
     indexDocument: index.html
+  storage:
+    enabled: false
+  functions:
+    enabled: false

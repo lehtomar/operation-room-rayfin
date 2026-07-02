@@ -1,22 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { MapView } from './components/MapView';
-import { TopBar, type Kpis } from './components/TopBar';
+import { TopBar, type Kpis, type KpiSub } from './components/TopBar';
 import { FaultDetail } from './components/FaultDetail';
 import { IncidentQueue, type Suggestion } from './components/IncidentQueue';
 import { CrewPanel } from './components/CrewPanel';
+import { EventsTicker } from './components/EventsTicker';
 import { createProvider, isDevMode, type DataProvider } from './data';
 import { loadGridAssets, type GridAssets } from './grid/assets';
 import { useFmiWind } from './hooks/useFmiWind';
 import { haversineKm, etaMinutes } from './lib/geo';
 import { projectedCompensationEur } from './lib/compensation';
+import { buildCrewGantt, toAlerts } from './lib/events';
 import {
   buildSegmentChildren,
   deEnergizedFromIncidents,
   deadSegmentsFromIncidents,
   subtreeSegments,
 } from './lib/topology';
-import type { Crew, Incident, LiveState } from './lib/types';
+import type { Crew, Incident, LiveState, ScenarioMeta } from './lib/types';
 import { windAt } from './lib/wind';
 
 const POLL_MS = 1500;
@@ -24,7 +26,7 @@ const POLL_MS = 1500;
 export default function App() {
   const [assets, setAssets] = useState<GridAssets | null>(null);
   const [provider, setProvider] = useState<DataProvider | null>(null);
-  const [live, setLive] = useState<LiveState>({ scenario: null, wind: null, incidents: [], crews: [] });
+  const [live, setLive] = useState<LiveState>({ scenario: null, wind: null, incidents: [], crews: [], events: [] });
   const [connected, setConnected] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +113,39 @@ export default function App() {
     };
   }, [live, de, assets]);
 
+  const sub: KpiSub = useMemo(() => {
+    const active = live.incidents.filter((i) => i.status !== 'restored');
+    const restoredList = live.incidents.filter((i) => i.status === 'restored');
+    const lastRestored = restoredList
+      .map((i) => i.restored_at)
+      .filter(Boolean)
+      .sort()
+      .pop() ?? null;
+    const totalKp = assets?.topology.counts.kayttopaikat ?? 0;
+    const now = live.scenario ? new Date(live.scenario.sim_clock).getTime() : 0;
+    let maxOutMin = 0;
+    for (const i of active) {
+      if (i.started_at) maxOutMin = Math.max(maxOutMin, (now - new Date(i.started_at).getTime()) / 60000);
+    }
+    return {
+      totalKp,
+      pctOut: totalKp ? (kpis.customersOut / totalKp) * 100 : 0,
+      unassigned: active.filter((i) => i.status === 'open').length,
+      restored: restoredList.length,
+      lastRestored: lastRestored as string | null,
+      crewsTotal: live.crews.length,
+      crewsAvailable: live.crews.filter((c) => c.status === 'idle').length,
+      minsToFirstTier: active.length ? Math.max(0, Math.round(12 * 60 - maxOutMin)) : null,
+    };
+  }, [live, assets, kpis.customersOut]);
+
+  const gantt = useMemo(() => buildCrewGantt(live.events, live.crews), [live.events, live.crews]);
+  const alerts = useMemo(() => toAlerts(live.events), [live.events]);
+  const stormFront = useMemo(
+    () => (assets ? frontAt(assets.scenario, elapsedMin) : null),
+    [assets, elapsedMin]
+  );
+
   const selectedIncident = live.incidents.find((i) => i.incident_id === selected) ?? null;
   const suggestions: Record<string, Suggestion | null> = useMemo(() => {
     if (!assets) return {};
@@ -148,14 +183,15 @@ export default function App() {
     dispatch(incidentId, crewId, eta);
   }
 
-  if (error) return <div className="fullscreen error">Virhe: {error}</div>;
-  if (!assets) return <div className="fullscreen">Ladataan verkkoa…</div>;
+  if (error) return <div className="fullscreen error">Error: {error}</div>;
+  if (!assets) return <div className="fullscreen">Loading grid…</div>;
 
   return (
     <div className="app">
       <TopBar
         scenario={live.scenario}
         kpis={kpis}
+        sub={sub}
         stormName={assets.scenario.storm.name}
         wind={wind}
         fmiWind={fmi}
@@ -164,7 +200,10 @@ export default function App() {
         onPlay={() => provider?.play()}
         onPause={() => provider?.pause()}
         onSpeed={(v) => provider?.setSpeed(v)}
-        onReset={() => provider?.reset()}
+        onReset={() => {
+          provider?.reset();
+          setSelected(null);
+        }}
       />
       <div className="stage">
         <MapView
@@ -174,6 +213,7 @@ export default function App() {
           highlightSegments={highlightSegments}
           incidents={live.incidents}
           crews={live.crews}
+          stormFront={stormFront}
           selectedIncidentId={selected}
           onSelectFault={setSelected}
         />
@@ -187,6 +227,7 @@ export default function App() {
         />
         <CrewPanel
           crews={live.crews}
+          gantt={gantt}
           simClockIso={live.scenario?.sim_clock}
           shiftStartIso={assets.scenario.startWallClock}
           shiftEndIso={new Date(new Date(assets.scenario.startWallClock).getTime() + 8 * 3600_000).toISOString()}
@@ -203,12 +244,33 @@ export default function App() {
         )}
         {isDevMode() && !connected && (
           <div className="hint">
-            Kytke simulaattori: <code>python -m simulator run --serve --play</code>
+            Start the simulator: <code>python -m simulator run --serve --play</code>
           </div>
         )}
       </div>
+      <EventsTicker alerts={alerts} />
     </div>
   );
+}
+
+/** Interpolate the storm front line at the given elapsed minute. */
+function frontAt(meta: ScenarioMeta, elapsedMin: number): [number, number][] | null {
+  const fr = meta.storm.front;
+  if (!fr || fr.length === 0) return null;
+  let prev = fr[0];
+  for (const p of fr) {
+    if (p.offsetMin <= elapsedMin) {
+      prev = p;
+    } else {
+      const span = p.offsetMin - prev.offsetMin || 1;
+      const f = (elapsedMin - prev.offsetMin) / span;
+      return prev.line.map((pt, idx) => {
+        const nxt = p.line[idx] ?? pt;
+        return [pt[0] + (nxt[0] - pt[0]) * f, pt[1] + (nxt[1] - pt[1]) * f] as [number, number];
+      });
+    }
+  }
+  return prev.line;
 }
 
 function suggestCrew(

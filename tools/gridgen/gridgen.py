@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -43,7 +44,7 @@ from shared.topology import RadialNetwork, Segment  # noqa: E402
 TM35FIN = "EPSG:3067"
 WGS84 = "EPSG:4326"
 
-CONFIG_PATH = REPO_ROOT / "config" / "municipality.sysma.json"
+CONFIG_PATH = REPO_ROOT / "config" / f"municipality.{os.environ.get('MUNICIPALITY', 'sysma')}.json"
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 

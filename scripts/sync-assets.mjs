@@ -18,8 +18,9 @@ copyFileSync(
   resolve(root, 'scenarios', 'mauri-2026.json'),
   resolve(out, 'scenario.json')
 );
+const muni = process.env.MUNICIPALITY || 'sysma';
 copyFileSync(
-  resolve(root, 'config', 'municipality.sysma.json'),
+  resolve(root, 'config', `municipality.${muni}.json`),
   resolve(out, 'municipality.json')
 );
 

@@ -281,6 +281,13 @@ class Engine:
         elapsed_min = (sim_clock - self.start).total_seconds() / 60.0
         crews = db.query("SELECT * FROM Crews")
         incidents = db.query("SELECT * FROM Incidents")
+        events = db.query(
+            "SELECT TOP 120 ts, event_type, entity_id, feeder_id, payload "
+            "FROM GridEvents ORDER BY ts DESC"
+        )
+        for e in events:
+            e["ts"] = self._iso(e.get("ts"))
+            e["payload"] = json.loads(e["payload"]) if e.get("payload") else None
         for c in crews:
             c["shift_start"] = self._iso(c.get("shift_start"))
             c["shift_end"] = self._iso(c.get("shift_end"))
@@ -304,6 +311,7 @@ class Engine:
             "wind": self.wind_at(elapsed_min),
             "crews": crews,
             "incidents": incidents,
+            "events": events,
         }
 
     def _fire_faults(self, db, sim_clock, elapsed_min, incidents) -> None:
