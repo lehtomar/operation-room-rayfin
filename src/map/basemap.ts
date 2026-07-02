@@ -51,26 +51,31 @@ export function buildStyle(basemap: BasemapConfig): StyleSpecification {
     });
   }
 
-  // Live FMI weather radar (reflectivity). Rendered under the grid, off by
-  // default. Constrained to Finland + capped zoom so only relevant, visible
-  // tiles load (overzoomed beyond z8 instead of fetching more tiles).
+  // Live FMI weather radar (reflectivity), double-buffered (a/b) so frames
+  // cross-fade instead of blinking. Rendered under the grid, off by default.
+  // Constrained to Finland + capped zoom so only visible tiles load.
   const latestIso = new Date(Math.floor((Date.now() - 5 * 60000) / 300000) * 300000).toISOString();
-  sources['fmi-radar'] = {
-    type: 'raster',
-    tiles: [radarTiles(latestIso)],
-    tileSize: 256,
-    minzoom: 0,
-    maxzoom: 8,
-    bounds: [19, 59, 32, 71],
-    attribution: '© Ilmatieteen laitos (FMI)',
-  };
-  layers.push({
-    id: 'fmi-radar',
-    type: 'raster',
-    source: 'fmi-radar',
-    layout: { visibility: 'none' },
-    paint: { 'raster-opacity': 0.6 },
-  });
+  for (const buf of ['a', 'b'] as const) {
+    sources[`fmi-radar-${buf}`] = {
+      type: 'raster',
+      tiles: [radarTiles(latestIso)],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 8,
+      bounds: [19, 59, 32, 71],
+      attribution: '© Ilmatieteen laitos (FMI)',
+    };
+    layers.push({
+      id: `fmi-radar-${buf}`,
+      type: 'raster',
+      source: `fmi-radar-${buf}`,
+      paint: {
+        'raster-opacity': 0,
+        'raster-opacity-transition': { duration: 250, delay: 0 },
+        'raster-fade-duration': 0,
+      },
+    });
+  }
 
   return { version: 8, glyphs: GLYPHS, sources, layers };
 }

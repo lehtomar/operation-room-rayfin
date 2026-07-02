@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FeatureCollection, Feature } from 'geojson';
 
 import type { GridAssets } from '../grid/assets';
@@ -25,8 +25,8 @@ const LAYER_GROUPS: { key: string; label: string; layers: string[] }[] = [
   { key: 'faults', label: 'Faults', layers: ['faults', 'faults-pulse'] },
   { key: 'crews', label: 'Crews & routes', layers: ['crews', 'crews-label', 'dispatch-routes'] },
   { key: 'weather', label: 'Weather / FMI', layers: ['warning-fill', 'warning-line', 'front-line'] },
-  { key: 'radar', label: 'Rain radar (FMI)', layers: ['fmi-radar'] },
 ];
+const RADAR_OPACITY = 0.6;
 
 const STATUS_COLOR: Record<string, string> = {
   idle: '#7dd3fc',
@@ -93,6 +93,8 @@ export function MapView(props: MapViewProps) {
   const [basemap, setBasemap] = useState<BasemapMode>('satellite');
   const [radarIdx, setRadarIdx] = useState(RADAR_FRAMES.length - 1);
   const [radarPlaying, setRadarPlaying] = useState(false);
+  const radarFrontRef = useRef<'a' | 'b'>('a');
+  const radarPendingRef = useRef<() => void>(() => {});
   const [visible, setVisible] = useState<Record<string, boolean>>({
     feeders: true,
     transformers: true,
@@ -311,17 +313,60 @@ export function MapView(props: MapViewProps) {
     applyBasemapMode(map, basemap);
   }, [basemap]);
 
-  // --- radar: apply the selected frame (scrub / animate) ---
-  useEffect(() => {
+  // --- radar double-buffer crossfade (no blink between frames) ---
+  const fadeOutRadar = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !loadedRef.current || !visible.radar) return;
-    const iso = RADAR_FRAMES[radarIdx]?.toISOString();
-    if (!iso) return;
-    const src = map.getSource('fmi-radar') as unknown as { setTiles?: (t: string[]) => void } | undefined;
-    src?.setTiles?.([radarTiles(iso)]);
-  }, [visible.radar, radarIdx]);
+    if (!map) return;
+    radarPendingRef.current();
+    for (const buf of ['a', 'b']) {
+      if (map.getLayer(`fmi-radar-${buf}`)) map.setPaintProperty(`fmi-radar-${buf}`, 'raster-opacity', 0);
+    }
+  }, []);
 
-  // jump to the latest frame + warm the cache when radar is turned on
+  const showRadarFrame = useCallback((iso: string) => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer('fmi-radar-a')) return;
+    radarPendingRef.current(); // cancel any previous pending swap
+    const front = radarFrontRef.current;
+    const back = front === 'a' ? 'b' : 'a';
+    const backSrc = `fmi-radar-${back}`;
+    (map.getSource(backSrc) as unknown as { setTiles?: (t: string[]) => void } | undefined)?.setTiles?.([
+      radarTiles(iso),
+    ]);
+    let done = false;
+    const swap = () => {
+      if (done) return;
+      done = true;
+      map.off('sourcedata', onData);
+      clearTimeout(tid);
+      // fade the freshly-loaded buffer in and the old one out (crossfade)
+      map.setPaintProperty(`fmi-radar-${back}`, 'raster-opacity', RADAR_OPACITY);
+      map.setPaintProperty(`fmi-radar-${front}`, 'raster-opacity', 0);
+      radarFrontRef.current = back;
+    };
+    const onData = (e: maplibregl.MapSourceDataEvent) => {
+      if (e.sourceId === backSrc && map.isSourceLoaded(backSrc)) swap();
+    };
+    map.on('sourcedata', onData);
+    const tid = setTimeout(swap, 1500); // safety if no event fires
+    radarPendingRef.current = () => {
+      map.off('sourcedata', onData);
+      clearTimeout(tid);
+    };
+  }, []);
+
+  // apply the selected frame (or fade out when radar is off)
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    if (!visible.radar) {
+      fadeOutRadar();
+      return;
+    }
+    const iso = RADAR_FRAMES[radarIdx]?.toISOString();
+    if (iso) showRadarFrame(iso);
+  }, [visible.radar, radarIdx, showRadarFrame, fadeOutRadar]);
+
+  // on enable: jump to latest + warm the cache; on disable: stop looping
   useEffect(() => {
     if (visible.radar) {
       setRadarIdx(RADAR_FRAMES.length - 1);
@@ -365,6 +410,14 @@ export function MapView(props: MapViewProps) {
             {g.label}
           </label>
         ))}
+        <label className="lp-row">
+          <input
+            type="checkbox"
+            checked={visible.radar}
+            onChange={(e) => setVisible((v) => ({ ...v, radar: e.target.checked }))}
+          />
+          Rain radar (FMI)
+        </label>
       </div>
       <div className="legend">
         <LegendRow swatch={<span className="lg-line live" />} text="Feeder energized" />
