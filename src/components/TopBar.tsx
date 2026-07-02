@@ -1,5 +1,4 @@
 import type { Scenario, Wind } from '../lib/types';
-import { windArrow } from '../lib/wind';
 import type { FmiWind } from '../hooks/useFmiWind';
 
 export interface Kpis {
@@ -24,20 +23,12 @@ interface TopBarProps {
   scenario: Scenario | null;
   kpis: Kpis;
   sub: KpiSub;
-  stormName: string;
-  wind: Wind | null;
-  fmiWind: FmiWind | null;
-  auto: boolean;
+  wind: Wind | null; // scenario / storm wind
+  fmiWind: FmiWind | null; // live FMI wind
   mode: 'storm' | 'live';
   onMode: (m: 'storm' | 'live') => void;
-  onToggleAuto: () => void;
-  onPlay: () => void;
-  onPause: () => void;
-  onSpeed: (v: number) => void;
-  onReset: () => void;
 }
 
-const SPEEDS = [8, 24, 60];
 const nf = new Intl.NumberFormat('fi-FI');
 
 function clock(iso: string | undefined | null): string {
@@ -56,10 +47,14 @@ function hm(mins: number | null): string {
 
 export function TopBar(props: TopBarProps) {
   const { scenario, kpis, sub, wind, fmiWind } = props;
-  const playing = scenario?.playing ?? false;
-  const speed = scenario?.speed ?? 24;
-  const stormActive = kpis.activeFaults > 0;
   const live = props.mode === 'live';
+  const stormActive = kpis.activeFaults > 0;
+
+  // one wind chip — scenario wind in replay, live FMI wind in live mode
+  const wSpeed = live ? fmiWind?.speed_ms ?? null : wind?.speed_ms ?? null;
+  const wGust = live ? fmiWind?.gust_ms ?? null : wind?.gust_ms ?? null;
+  const wDir = live ? fmiWind?.dir_deg ?? null : wind?.dir_deg ?? null;
+  const clockIso = live ? new Date().toISOString() : scenario?.sim_clock ?? undefined;
 
   return (
     <header className="topbar">
@@ -76,37 +71,6 @@ export function TopBar(props: TopBarProps) {
           Live
         </button>
       </div>
-
-      {live ? (
-        <div className="player live-monitor">
-          <span className="live-pill">● LIVE</span>
-          <span className="live-sub">real-time monitoring</span>
-        </div>
-      ) : (
-        <div className="player">
-          <span className="sim-label">SIM</span>
-          <button className="pbtn" onClick={playing ? props.onPause : props.onPlay}>
-            {playing ? '⏸' : '▶'}
-          </button>
-          <div className="speeds">
-            {SPEEDS.map((s) => (
-              <button key={s} className={`sbtn ${Math.round(speed) === s ? 'active' : ''}`} onClick={() => props.onSpeed(s)}>
-                {s}×
-              </button>
-            ))}
-          </div>
-          <button
-            className={`sbtn auto ${props.auto ? 'active' : ''}`}
-            onClick={props.onToggleAuto}
-            title="Auto-dispatch nearest skilled crew"
-          >
-            AUTO
-          </button>
-          <button className="pbtn reset" onClick={props.onReset} title="Reset scenario">
-            ⟲
-          </button>
-        </div>
-      )}
 
       <div className="kpis">
         <Kpi
@@ -135,25 +99,23 @@ export function TopBar(props: TopBarProps) {
       </div>
 
       <div className="storm">
-        <div className="wind-chip" title="Scenario storm wind">
-          <span className="wind-lbl">WIND {wind ? windArrow(wind.dir_deg) : ''} · GUSTS</span>
-          <span className="wind-arrow" style={{ transform: `rotate(${(wind?.dir_deg ?? 0) + 180}deg)` }}>↑</span>
-          <span className="wind-val">{wind ? wind.gust_ms.toFixed(0) : '–'}</span>
+        <div className="wind-chip" title={live ? 'FMI live wind' : 'Storm wind'}>
+          <span className="wind-lbl">WIND</span>
+          {wDir != null && (
+            <span className="wind-arrow" style={{ transform: `rotate(${wDir + 180}deg)` }}>↑</span>
+          )}
+          <span className="wind-val">{wSpeed != null ? wSpeed.toFixed(0) : '–'}</span>
           <span className="wind-unit">m/s</span>
-        </div>
-        <div className="wind-chip fmi" title="FMI live observation">
-          <span className="fmi-tag">FMI</span>
-          <span className="wind-val">{fmiWind?.speed_ms != null ? fmiWind.speed_ms.toFixed(0) : '–'}</span>
-          <span className="wind-unit">m/s</span>
+          {wGust != null && <span className="wind-gust">gust {wGust.toFixed(0)}</span>}
+          {live && <span className="fmi-tag">FMI</span>}
         </div>
         {stormActive ? (
-          <div className={`badge major ${playing ? 'badge-live' : ''}`}>
+          <div className="badge major badge-live">
             <span className="dot" /> MAJOR DISTURBANCE
-            <span className="badge-sub">Storm {props.stormName} · FMI orange</span>
           </div>
         ) : (
           <div className="badge badge-ok">
-            <span className="dot" /> NORMAL OPERATIONS
+            <span className="dot" /> {live ? 'LIVE' : 'NORMAL'}
           </div>
         )}
       </div>
@@ -161,8 +123,8 @@ export function TopBar(props: TopBarProps) {
       <div className="clockbox">
         <span className="conn-dot ok" title="Live (in-browser engine)" />
         <div>
-          <div className="sim-time">{clock(live ? new Date().toISOString() : scenario?.sim_clock)}</div>
-          <div className="sim-date">{dateStr(live ? new Date().toISOString() : scenario?.sim_clock)}</div>
+          <div className="sim-time">{clock(clockIso)}</div>
+          <div className="sim-date">{dateStr(clockIso)}</div>
         </div>
       </div>
     </header>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { MapView } from './components/MapView';
 import { TopBar, type Kpis, type KpiSub } from './components/TopBar';
+import { SimControls } from './components/SimControls';
 import { FaultDetail } from './components/FaultDetail';
 import { IncidentQueue, type Suggestion, type ReserveHint } from './components/IncidentQueue';
 import { CrewPanel } from './components/CrewPanel';
@@ -173,20 +174,10 @@ export default function App() {
         scenario={live.scenario}
         kpis={kpis}
         sub={sub}
-        stormName={assets.scenario.storm.name}
         wind={live.wind}
         fmiWind={fmi}
-        auto={auto}
         mode={mode}
         onMode={changeMode}
-        onToggleAuto={() => setAuto((v) => !v)}
-        onPlay={() => drive((d) => d.play())}
-        onPause={() => drive((d) => d.pause())}
-        onSpeed={(v) => drive((d) => d.setSpeed(v))}
-        onReset={() => {
-          drive((d) => d.reset());
-          setSelected(null);
-        }}
       />
       <div className="stage">
         <MapView
@@ -202,6 +193,20 @@ export default function App() {
           selectedIncidentId={selected}
           onSelectFault={setSelected}
         />
+        {mode === 'storm' && (
+          <SimControls
+            scenario={live.scenario}
+            auto={auto}
+            onPlay={() => drive((d) => d.play())}
+            onPause={() => drive((d) => d.pause())}
+            onSpeed={(v) => drive((d) => d.setSpeed(v))}
+            onToggleAuto={() => setAuto((v) => !v)}
+            onReset={() => {
+              drive((d) => d.reset());
+              setSelected(null);
+            }}
+          />
+        )}
         <IncidentQueue
           incidents={live.incidents}
           suggestions={suggestions}

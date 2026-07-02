@@ -442,7 +442,7 @@ export function MapView(props: MapViewProps) {
         <LegendRow swatch={<span className="lg-line route" />} text="Dispatch route" />
       </div>
       {visible.radar && (
-        <div className="radar-control">
+        <div className={`radar-control ${props.mode === 'storm' ? 'storm' : ''}`}>
           {props.mode === 'storm' ? (
             <>
               <span className="radar-time">Radar {frameLabelFull(new Date(stormFrameMs))}</span>
