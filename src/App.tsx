@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapView } from './components/MapView';
 import { TopBar, type Kpis } from './components/TopBar';
 import { FaultDetail } from './components/FaultDetail';
+import { IncidentQueue, type Suggestion } from './components/IncidentQueue';
+import { CrewPanel } from './components/CrewPanel';
 import { createProvider, isDevMode, type DataProvider } from './data';
 import { loadGridAssets, type GridAssets } from './grid/assets';
 import { useFmiWind } from './hooks/useFmiWind';
@@ -110,10 +112,15 @@ export default function App() {
   }, [live, de, assets]);
 
   const selectedIncident = live.incidents.find((i) => i.incident_id === selected) ?? null;
-  const suggested = useMemo(
-    () => (assets && selectedIncident ? suggestCrew(assets, live.crews, selectedIncident) : null),
-    [assets, live.crews, selectedIncident]
-  );
+  const suggestions: Record<string, Suggestion | null> = useMemo(() => {
+    if (!assets) return {};
+    const out: Record<string, Suggestion | null> = {};
+    for (const i of live.incidents) {
+      if (i.status === 'open') out[i.incident_id] = suggestCrew(assets, live.crews, i);
+    }
+    return out;
+  }, [assets, live.crews, live.incidents]);
+  const suggested = selectedIncident ? suggestions[selectedIncident.incident_id] ?? null : null;
 
   async function dispatch(incidentId: string, crewId: string, etaMin: number) {
     if (!provider) return;
@@ -129,6 +136,16 @@ export default function App() {
     } catch (e) {
       setError(String(e));
     }
+  }
+
+  // Drag incident card onto a crew row → dispatch (same path as suggest→confirm).
+  function assignToCrew(incidentId: string, crewId: string) {
+    if (!assets) return;
+    const fault = assets.scenario.faults.find((f) => f.incident_id === incidentId);
+    const crew = live.crews.find((c) => c.crew_id === crewId);
+    if (!fault || !crew) return;
+    const eta = etaMinutes(parseFloat(crew.lat), parseFloat(crew.lon), fault.lat, fault.lon);
+    dispatch(incidentId, crewId, eta);
   }
 
   if (error) return <div className="fullscreen error">Virhe: {error}</div>;
@@ -159,6 +176,21 @@ export default function App() {
           crews={live.crews}
           selectedIncidentId={selected}
           onSelectFault={setSelected}
+        />
+        <IncidentQueue
+          incidents={live.incidents}
+          suggestions={suggestions}
+          simNowIso={live.scenario?.sim_clock}
+          selectedId={selected}
+          onSelect={setSelected}
+          onDispatch={dispatch}
+        />
+        <CrewPanel
+          crews={live.crews}
+          simClockIso={live.scenario?.sim_clock}
+          shiftStartIso={assets.scenario.startWallClock}
+          shiftEndIso={new Date(new Date(assets.scenario.startWallClock).getTime() + 8 * 3600_000).toISOString()}
+          onAssign={assignToCrew}
         />
         {selectedIncident && (
           <FaultDetail
