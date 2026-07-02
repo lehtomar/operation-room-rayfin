@@ -79,6 +79,19 @@ Copy `config/db.example.json` → `config/db.local.json` and
 the SQL DB values from
 `GET /v1/workspaces/{ws}/SQLDatabases/{id}` (see DEPLOY.md).
 
+## View modes
+
+The top bar switches between two views:
+
+- **Storm replay** (default): replays the recorded storm (Myrsky Mauri) with the
+  full player (play/pause, 8/24/60×, AUTO dispatch, reset). When the **Rain radar
+  (FMI)** layer is on, the radar is **synced to the simulated clock** — anchored
+  into FMI's real ~7-day archive window — so real rain frames advance with the
+  replay (label shows the historical time).
+- **Live**: real-time / normal-operations monitoring — the grid resets to its
+  healthy state, the clock shows the current time, and the radar shows the latest
+  live frames with a scrub slider + loop.
+
 ## 10-step demo script
 
 Two ways to run it. **A) Local** (fastest, reset button enabled).

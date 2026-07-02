@@ -14,6 +14,9 @@ interface MapViewProps {
   highlightSegments: Set<string>;
   incidents: Incident[];
   crews: Crew[];
+  mode: 'storm' | 'live';
+  stormElapsedMs: number;
+  stormDurationMs: number;
   selectedIncidentId: string | null;
   onSelectFault: (incidentId: string | null) => void;
 }
@@ -35,16 +38,31 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 /** Radar frames: last 2 h at 5-min steps, ending at the latest available. */
-function buildRadarFrames(count = 24, stepMin = 5): Date[] {
-  const step = stepMin * 60000;
-  const latest = Math.floor((Date.now() - 5 * 60000) / step) * step;
+const RADAR_STEP_MS = 5 * 60000;
+const LATEST_RADAR_MS = Math.floor((Date.now() - RADAR_STEP_MS) / RADAR_STEP_MS) * RADAR_STEP_MS;
+const RADAR_WINDOW_START_MS = LATEST_RADAR_MS - 7 * 24 * 3600 * 1000; // FMI open archive ≈ 7 days
+function snap5(ms: number): number {
+  return Math.floor(ms / RADAR_STEP_MS) * RADAR_STEP_MS;
+}
+function buildRadarFrames(count = 24): Date[] {
   const arr: Date[] = [];
-  for (let i = count - 1; i >= 0; i--) arr.push(new Date(latest - i * step));
+  for (let i = count - 1; i >= 0; i--) arr.push(new Date(LATEST_RADAR_MS - i * RADAR_STEP_MS));
   return arr;
 }
 const RADAR_FRAMES = buildRadarFrames();
+/** Coarse frame set spanning the storm window (for cache warm-up). */
+function stormPrefetchFrames(durationMs: number): Date[] {
+  const step = 2 * RADAR_STEP_MS; // 10-min steps keeps the warm-up bounded
+  const anchor = LATEST_RADAR_MS - durationMs;
+  const arr: Date[] = [];
+  for (let t = anchor; t <= LATEST_RADAR_MS; t += step) arr.push(new Date(snap5(t)));
+  return arr;
+}
 function frameLabel(d: Date): string {
   return d.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' });
+}
+function frameLabelFull(d: Date): string {
+  return d.toLocaleString('fi-FI', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 // --- radar tile prefetch (warm the browser cache for smooth scrub/loop) ---
@@ -62,8 +80,8 @@ function tileMercBBox(x: number, y: number, z: number): [number, number, number,
   const maxy = MERC_R - y * size;
   return [minx, maxy - size, minx + size, maxy];
 }
-/** Preload the current viewport's tiles for every frame so the loop is smooth. */
-function prefetchRadar(map: maplibregl.Map): void {
+/** Preload the current viewport's tiles for the given frames so scrub/sync is smooth. */
+function prefetchRadar(map: maplibregl.Map, frames: Date[]): void {
   const z = Math.min(8, Math.max(0, Math.floor(map.getZoom())));
   const b = map.getBounds();
   const nw = lngLatToTile(b.getWest(), b.getNorth(), z);
@@ -71,7 +89,7 @@ function prefetchRadar(map: maplibregl.Map): void {
   const tiles: { x: number; y: number }[] = [];
   for (let x = nw.x; x <= se.x; x++) for (let y = nw.y; y <= se.y; y++) tiles.push({ x, y });
   if (tiles.length === 0 || tiles.length > 30) return; // keep the warm-up bounded
-  for (const f of RADAR_FRAMES) {
+  for (const f of frames) {
     const base = radarTiles(f.toISOString());
     for (const t of tiles) {
       const img = new Image();
@@ -336,33 +354,48 @@ export function MapView(props: MapViewProps) {
   }, []);
 
   // apply the selected frame (or fade out when radar is off)
+  // Storm mode: radar time follows the simulated clock, anchored into the real
+  // FMI archive window (storm end ≈ latest available frame).
+  const stormFrameMs = Math.min(
+    LATEST_RADAR_MS,
+    Math.max(RADAR_WINDOW_START_MS, snap5(LATEST_RADAR_MS - props.stormDurationMs + props.stormElapsedMs))
+  );
+
+  // apply the selected frame (or fade out when radar is off)
   useEffect(() => {
     if (!loadedRef.current) return;
     if (!visible.radar) {
       fadeOutRadar();
       return;
     }
-    const iso = RADAR_FRAMES[radarIdx]?.toISOString();
-    if (iso) showRadarFrame(iso);
-  }, [visible.radar, radarIdx, showRadarFrame, fadeOutRadar]);
+    if (props.mode === 'storm') {
+      showRadarFrame(new Date(stormFrameMs).toISOString());
+    } else {
+      const iso = RADAR_FRAMES[radarIdx]?.toISOString();
+      if (iso) showRadarFrame(iso);
+    }
+  }, [visible.radar, radarIdx, props.mode, stormFrameMs, showRadarFrame, fadeOutRadar]);
 
   // on enable: jump to latest + warm the cache; on disable: stop looping
   useEffect(() => {
     if (visible.radar) {
       setRadarIdx(RADAR_FRAMES.length - 1);
       const map = mapRef.current;
-      if (map && loadedRef.current) prefetchRadar(map);
+      if (map && loadedRef.current) {
+        prefetchRadar(map, props.mode === 'storm' ? stormPrefetchFrames(props.stormDurationMs) : RADAR_FRAMES);
+      }
     } else {
       setRadarPlaying(false);
     }
-  }, [visible.radar]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible.radar, props.mode]);
 
-  // animate the radar loop
+  // animate the radar loop (live mode only — storm mode follows the sim clock)
   useEffect(() => {
-    if (!radarPlaying) return;
+    if (!radarPlaying || props.mode !== 'live') return;
     const id = setInterval(() => setRadarIdx((i) => (i + 1) % RADAR_FRAMES.length), 650);
     return () => clearInterval(id);
-  }, [radarPlaying]);
+  }, [radarPlaying, props.mode]);
 
   return (
     <div className="map-root" ref={containerRef}>
@@ -410,25 +443,34 @@ export function MapView(props: MapViewProps) {
       </div>
       {visible.radar && (
         <div className="radar-control">
-          <button className="radar-play" onClick={() => setRadarPlaying((p) => !p)} title="Play radar loop">
-            {radarPlaying ? '⏸' : '▶'}
-          </button>
-          <input
-            className="radar-slider"
-            type="range"
-            min={0}
-            max={RADAR_FRAMES.length - 1}
-            value={radarIdx}
-            onChange={(e) => {
-              setRadarPlaying(false);
-              setRadarIdx(Number(e.target.value));
-            }}
-          />
-          <span className="radar-time">
-            {frameLabel(RADAR_FRAMES[radarIdx])}
-            {radarIdx === RADAR_FRAMES.length - 1 ? ' · LIVE' : ''}
-          </span>
-          <span className="radar-tag">RAIN RADAR · FMI</span>
+          {props.mode === 'storm' ? (
+            <>
+              <span className="radar-time">Radar {frameLabelFull(new Date(stormFrameMs))}</span>
+              <span className="radar-tag">SYNCED TO STORM · FMI</span>
+            </>
+          ) : (
+            <>
+              <button className="radar-play" onClick={() => setRadarPlaying((p) => !p)} title="Play radar loop">
+                {radarPlaying ? '⏸' : '▶'}
+              </button>
+              <input
+                className="radar-slider"
+                type="range"
+                min={0}
+                max={RADAR_FRAMES.length - 1}
+                value={radarIdx}
+                onChange={(e) => {
+                  setRadarPlaying(false);
+                  setRadarIdx(Number(e.target.value));
+                }}
+              />
+              <span className="radar-time">
+                {frameLabel(RADAR_FRAMES[radarIdx])}
+                {radarIdx === RADAR_FRAMES.length - 1 ? ' · LIVE' : ''}
+              </span>
+              <span className="radar-tag">RAIN RADAR · FMI</span>
+            </>
+          )}
         </div>
       )}
     </div>

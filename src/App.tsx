@@ -28,6 +28,7 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [auto, setAuto] = useState(true);
+  const [mode, setMode] = useState<'storm' | 'live'>('storm');
   const driverRef = useRef<SimDriver | null>(null);
 
   useEffect(() => {
@@ -155,6 +156,14 @@ export default function App() {
   const dispatch = (incidentId: string, crewId: string) => drive((d) => d.assign(incidentId, crewId));
   const reserve = (incidentId: string) => drive((d) => d.reserveNextFree(incidentId));
 
+  // Switch between the recorded storm replay and live/normal operations.
+  function changeMode(m: 'storm' | 'live') {
+    if (m === mode) return;
+    setMode(m);
+    setSelected(null);
+    drive((d) => d.reset()); // storm → back to start; live → clean normal-ops grid
+  }
+
   if (error) return <div className="fullscreen error">Error: {error}</div>;
   if (!assets) return <div className="fullscreen">Loading grid…</div>;
 
@@ -168,6 +177,8 @@ export default function App() {
         wind={live.wind}
         fmiWind={fmi}
         auto={auto}
+        mode={mode}
+        onMode={changeMode}
         onToggleAuto={() => setAuto((v) => !v)}
         onPlay={() => drive((d) => d.play())}
         onPause={() => drive((d) => d.pause())}
@@ -185,6 +196,9 @@ export default function App() {
           highlightSegments={highlightSegments}
           incidents={live.incidents}
           crews={live.crews}
+          mode={mode}
+          stormElapsedMs={(live.scenario?.elapsed_min ?? 0) * 60000}
+          stormDurationMs={assets.scenario.simDurationMin * 60000}
           selectedIncidentId={selected}
           onSelectFault={setSelected}
         />

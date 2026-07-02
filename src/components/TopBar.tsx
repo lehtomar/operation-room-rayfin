@@ -28,6 +28,8 @@ interface TopBarProps {
   wind: Wind | null;
   fmiWind: FmiWind | null;
   auto: boolean;
+  mode: 'storm' | 'live';
+  onMode: (m: 'storm' | 'live') => void;
   onToggleAuto: () => void;
   onPlay: () => void;
   onPause: () => void;
@@ -57,6 +59,7 @@ export function TopBar(props: TopBarProps) {
   const playing = scenario?.playing ?? false;
   const speed = scenario?.speed ?? 24;
   const stormActive = kpis.activeFaults > 0;
+  const live = props.mode === 'live';
 
   return (
     <header className="topbar">
@@ -65,29 +68,45 @@ export function TopBar(props: TopBarProps) {
         <div className="brand-sub">GRID OPERATIONS · DSO</div>
       </div>
 
-      <div className="player">
-        <span className="sim-label">SIM</span>
-        <button className="pbtn" onClick={playing ? props.onPause : props.onPlay}>
-          {playing ? '⏸' : '▶'}
+      <div className="viewmode">
+        <button className={`vm-btn ${!live ? 'active' : ''}`} onClick={() => props.onMode('storm')}>
+          Storm replay
         </button>
-        <div className="speeds">
-          {SPEEDS.map((s) => (
-            <button key={s} className={`sbtn ${Math.round(speed) === s ? 'active' : ''}`} onClick={() => props.onSpeed(s)}>
-              {s}×
-            </button>
-          ))}
-        </div>
-        <button
-          className={`sbtn auto ${props.auto ? 'active' : ''}`}
-          onClick={props.onToggleAuto}
-          title="Auto-dispatch nearest skilled crew"
-        >
-          AUTO
-        </button>
-        <button className="pbtn reset" onClick={props.onReset} title="Reset scenario">
-          ⟲
+        <button className={`vm-btn ${live ? 'active' : ''}`} onClick={() => props.onMode('live')}>
+          Live
         </button>
       </div>
+
+      {live ? (
+        <div className="player live-monitor">
+          <span className="live-pill">● LIVE</span>
+          <span className="live-sub">real-time monitoring</span>
+        </div>
+      ) : (
+        <div className="player">
+          <span className="sim-label">SIM</span>
+          <button className="pbtn" onClick={playing ? props.onPause : props.onPlay}>
+            {playing ? '⏸' : '▶'}
+          </button>
+          <div className="speeds">
+            {SPEEDS.map((s) => (
+              <button key={s} className={`sbtn ${Math.round(speed) === s ? 'active' : ''}`} onClick={() => props.onSpeed(s)}>
+                {s}×
+              </button>
+            ))}
+          </div>
+          <button
+            className={`sbtn auto ${props.auto ? 'active' : ''}`}
+            onClick={props.onToggleAuto}
+            title="Auto-dispatch nearest skilled crew"
+          >
+            AUTO
+          </button>
+          <button className="pbtn reset" onClick={props.onReset} title="Reset scenario">
+            ⟲
+          </button>
+        </div>
+      )}
 
       <div className="kpis">
         <Kpi
@@ -142,8 +161,8 @@ export function TopBar(props: TopBarProps) {
       <div className="clockbox">
         <span className="conn-dot ok" title="Live (in-browser engine)" />
         <div>
-          <div className="sim-time">{clock(scenario?.sim_clock)}</div>
-          <div className="sim-date">{dateStr(scenario?.sim_clock)}</div>
+          <div className="sim-time">{clock(live ? new Date().toISOString() : scenario?.sim_clock)}</div>
+          <div className="sim-date">{dateStr(live ? new Date().toISOString() : scenario?.sim_clock)}</div>
         </div>
       </div>
     </header>
