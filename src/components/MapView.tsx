@@ -14,7 +14,6 @@ interface MapViewProps {
   highlightSegments: Set<string>;
   incidents: Incident[];
   crews: Crew[];
-  stormFront: [number, number][] | null;
   selectedIncidentId: string | null;
   onSelectFault: (incidentId: string | null) => void;
 }
@@ -24,7 +23,6 @@ const LAYER_GROUPS: { key: string; label: string; layers: string[] }[] = [
   { key: 'transformers', label: 'Transformers', layers: ['transformers'] },
   { key: 'faults', label: 'Faults', layers: ['faults', 'faults-pulse'] },
   { key: 'crews', label: 'Crews & routes', layers: ['crews', 'crews-label', 'dispatch-routes'] },
-  { key: 'weather', label: 'Weather / FMI', layers: ['warning-fill', 'warning-line', 'front-line'] },
 ];
 const RADAR_OPACITY = 0.6;
 
@@ -100,7 +98,6 @@ export function MapView(props: MapViewProps) {
     transformers: true,
     faults: true,
     crews: true,
-    weather: true,
     radar: false,
   });
   propsRef.current = props;
@@ -142,26 +139,9 @@ export function MapView(props: MapViewProps) {
       map.addSource('feeders', { type: 'geojson', data: assets.feeders });
       map.addSource('transformers', { type: 'geojson', data: assets.transformers });
       map.addSource('substations', { type: 'geojson', data: assets.substations });
-      map.addSource('warning', { type: 'geojson', data: warningFC(assets) });
-      map.addSource('front', { type: 'geojson', data: emptyFC() });
       map.addSource('droutes', { type: 'geojson', data: emptyFC() });
       map.addSource('faults', { type: 'geojson', data: emptyFC() });
       map.addSource('crews', { type: 'geojson', data: emptyFC() });
-
-      // storm warning polygon
-      map.addLayer({
-        id: 'warning-fill', type: 'fill', source: 'warning',
-        paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.06 },
-      });
-      map.addLayer({
-        id: 'warning-line', type: 'line', source: 'warning',
-        paint: { 'line-color': '#f59e0b', 'line-opacity': 0.4, 'line-width': 1.5, 'line-dasharray': [3, 3] },
-      });
-      // storm front (moves NW→SE over time)
-      map.addLayer({
-        id: 'front-line', type: 'line', source: 'front',
-        paint: { 'line-color': '#fb923c', 'line-width': 3, 'line-opacity': 0.8, 'line-dasharray': [1.5, 1] },
-      });
 
       // käyttöpaikat (dim density dots)
       map.addLayer({
@@ -427,7 +407,6 @@ export function MapView(props: MapViewProps) {
         <LegendRow swatch={<span className="lg-dot fault" />} text="Fault (pulsing)" />
         <LegendRow swatch={<span className="lg-pill" />} text="Crew (K1…K6)" />
         <LegendRow swatch={<span className="lg-line route" />} text="Dispatch route" />
-        <LegendRow swatch={<span className="lg-line front" />} text="Storm front / FMI" />
       </div>
       {visible.radar && (
         <div className="radar-control">
@@ -494,7 +473,6 @@ function applyUpdate(
   );
   (map.getSource('crews') as maplibregl.GeoJSONSource | undefined)?.setData(crewsFC(p.crews));
   (map.getSource('droutes') as maplibregl.GeoJSONSource | undefined)?.setData(crewRoutesFC(p.crews));
-  (map.getSource('front') as maplibregl.GeoJSONSource | undefined)?.setData(lineFC(p.stormFront));
 }
 
 function withProps(fc: FeatureCollection, extra: (f: Feature) => Record<string, unknown>): FeatureCollection {
@@ -509,28 +487,6 @@ function withProps(fc: FeatureCollection, extra: (f: Feature) => Record<string, 
 
 function emptyFC(): FeatureCollection {
   return { type: 'FeatureCollection', features: [] };
-}
-
-function warningFC(assets: GridAssets): FeatureCollection {
-  const ring = assets.scenario.storm.warningPolygon;
-  return {
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        properties: {},
-        geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]]] },
-      },
-    ],
-  };
-}
-
-function lineFC(coords: [number, number][] | null): FeatureCollection {
-  if (!coords || coords.length < 2) return emptyFC();
-  return {
-    type: 'FeatureCollection',
-    features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }],
-  };
 }
 
 function faultsFC(

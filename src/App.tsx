@@ -17,7 +17,7 @@ import {
   deadSegmentsFromIncidents,
   subtreeSegments,
 } from './lib/topology';
-import type { Crew, Incident, LiveState, ScenarioMeta } from './lib/types';
+import type { Crew, Incident, LiveState } from './lib/types';
 import { SimDriver } from './sim/driver';
 
 const EMPTY: LiveState = { scenario: null, wind: null, incidents: [], crews: [], events: [] };
@@ -63,7 +63,6 @@ export default function App() {
   const fmi = useFmiWind(assets?.municipality.fmi.place ?? 'Sysmä');
 
   const segChildren = useMemo(() => (assets ? buildSegmentChildren(assets.feeders) : null), [assets]);
-  const elapsedMin = live.scenario?.elapsed_min ?? 0;
 
   const de = useMemo(
     () => (assets ? deEnergizedFromIncidents(assets.topology, live.incidents) : null),
@@ -121,7 +120,6 @@ export default function App() {
 
   const gantt = useMemo(() => buildCrewGantt(live.events, live.crews, live.incidents), [live.events, live.crews, live.incidents]);
   const alerts = useMemo(() => toAlerts(live.events), [live.events]);
-  const stormFront = useMemo(() => (assets ? frontAt(assets.scenario, elapsedMin) : null), [assets, elapsedMin]);
 
   const selectedIncident = live.incidents.find((i) => i.incident_id === selected) ?? null;
   const suggestions: Record<string, Suggestion | null> = useMemo(() => {
@@ -187,7 +185,6 @@ export default function App() {
           highlightSegments={highlightSegments}
           incidents={live.incidents}
           crews={live.crews}
-          stormFront={stormFront}
           selectedIncidentId={selected}
           onSelectFault={setSelected}
         />
@@ -224,26 +221,6 @@ export default function App() {
       <EventsTicker alerts={alerts} />
     </div>
   );
-}
-
-/** Interpolate the storm front line at the given elapsed minute. */
-function frontAt(meta: ScenarioMeta, elapsedMin: number): [number, number][] | null {
-  const fr = meta.storm.front;
-  if (!fr || fr.length === 0) return null;
-  let prev = fr[0];
-  for (const p of fr) {
-    if (p.offsetMin <= elapsedMin) {
-      prev = p;
-    } else {
-      const span = p.offsetMin - prev.offsetMin || 1;
-      const f = (elapsedMin - prev.offsetMin) / span;
-      return prev.line.map((pt, idx) => {
-        const nxt = p.line[idx] ?? pt;
-        return [pt[0] + (nxt[0] - pt[0]) * f, pt[1] + (nxt[1] - pt[1]) * f] as [number, number];
-      });
-    }
-  }
-  return prev.line;
 }
 
 function suggestCrew(
