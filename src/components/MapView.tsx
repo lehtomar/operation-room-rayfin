@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FeatureCollection, Feature } from 'geojson';
 
 import type { GridAssets } from '../grid/assets';
-import { buildStyle } from '../map/basemap';
+import { buildStyle, applyBasemapMode, type BasemapMode } from '../map/basemap';
 import type { Crew, Incident } from '../lib/types';
 
 interface MapViewProps {
@@ -42,6 +42,7 @@ export function MapView(props: MapViewProps) {
   const loadedRef = useRef(false);
   const propsRef = useRef(props);
   const [glError, setGlError] = useState<string | null>(null);
+  const [basemap, setBasemap] = useState<BasemapMode>('map');
   const [visible, setVisible] = useState<Record<string, boolean>>({
     feeders: true,
     transformers: true,
@@ -208,6 +209,7 @@ export function MapView(props: MapViewProps) {
       loadedRef.current = true;
       applyUpdate(map, propsRef.current, faultCoords.current);
       applyVisibility(map, visible);
+      applyBasemapMode(map, basemap);
     });
 
     // pulse animation
@@ -246,6 +248,13 @@ export function MapView(props: MapViewProps) {
     applyVisibility(map, visible);
   }, [visible]);
 
+  // --- basemap mode ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    applyBasemapMode(map, basemap);
+  }, [basemap]);
+
   return (
     <div className="map-root" ref={containerRef}>
       {glError && (
@@ -253,6 +262,13 @@ export function MapView(props: MapViewProps) {
           Map could not render ({glError}). KPIs and incident data still update.
         </div>
       )}
+      <div className="basemap-switch">
+        {(['map', 'dark', 'satellite'] as BasemapMode[]).map((m) => (
+          <button key={m} className={`bm-btn ${basemap === m ? 'active' : ''}`} onClick={() => setBasemap(m)}>
+            {m === 'map' ? 'Map' : m === 'dark' ? 'Dark' : 'Satellite'}
+          </button>
+        ))}
+      </div>
       <div className="layers-panel">
         <div className="lp-head">LAYERS</div>
         {LAYER_GROUPS.map((g) => (

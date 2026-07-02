@@ -104,10 +104,16 @@ Two ways to run it. **A) Local** (fastest, reset button enabled).
 10. Press **⟲** to reset and replay. Runs clean end-to-end in ~10 min.
 
 ### B) Fabric portal demo
-Same, but: deploy with `npx rayfin up`, open the app **inside the Fabric portal**
-(Fabric SSO), and run `python -m simulator run` locally (writes TDS; the portal
-player's ▶ / speed controls it via GraphQL). Reset is `python -m simulator reset`
-(the portal player is read-through for reset).
+Deploy with `npx rayfin up` and open the app from the workspace item **inside
+the Fabric portal**. The simulation runs **entirely in the browser** (from the
+bundled scenario + topology), so there is nothing to start server-side — just
+press **▶**, pick a speed, toggle **AUTO** dispatch, and use the map basemap
+switch (**Map / Dark / Satellite**). No local process is required.
+
+> The Rayfin **Fabric SQL Database** path (data model + the Python simulator
+> writing over TDS + the KQL templates) remains available as the "server-side /
+> real-time-ready" alternative — see below and `DEPLOY.md`. It is not required
+> for the deployed demo to run.
 
 ## Tests
 

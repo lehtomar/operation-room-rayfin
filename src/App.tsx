@@ -6,7 +6,6 @@ import { FaultDetail } from './components/FaultDetail';
 import { IncidentQueue, type Suggestion } from './components/IncidentQueue';
 import { CrewPanel } from './components/CrewPanel';
 import { EventsTicker } from './components/EventsTicker';
-import { createProvider, isDevMode, type DataProvider } from './data';
 import { loadGridAssets, type GridAssets } from './grid/assets';
 import { useFmiWind } from './hooks/useFmiWind';
 import { haversineKm, etaMinutes } from './lib/geo';
@@ -19,65 +18,50 @@ import {
   subtreeSegments,
 } from './lib/topology';
 import type { Crew, Incident, LiveState, ScenarioMeta } from './lib/types';
-import { windAt } from './lib/wind';
+import { SimDriver } from './sim/driver';
 
-const POLL_MS = 1500;
+const EMPTY: LiveState = { scenario: null, wind: null, incidents: [], crews: [], events: [] };
 
 export default function App() {
   const [assets, setAssets] = useState<GridAssets | null>(null);
-  const [provider, setProvider] = useState<DataProvider | null>(null);
-  const [live, setLive] = useState<LiveState>({ scenario: null, wind: null, incidents: [], crews: [], events: [] });
-  const [connected, setConnected] = useState(false);
+  const [live, setLive] = useState<LiveState>(EMPTY);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const optimistic = useRef<Record<string, Partial<Incident>>>({});
+  const [auto, setAuto] = useState(true);
+  const driverRef = useRef<SimDriver | null>(null);
 
   useEffect(() => {
     loadGridAssets().then(setAssets).catch((e) => setError(String(e)));
-    createProvider().then(setProvider).catch((e) => setError(String(e)));
   }, []);
 
-  // poll live state
+  // The simulation runs entirely in the browser from the bundled scenario +
+  // topology, so the deployed app animates with no backend dependency.
   useEffect(() => {
-    if (!provider) return;
-    let active = true;
-    const tick = async () => {
-      try {
-        const s = await provider.getState();
-        if (!active) return;
-        const incidents = s.incidents.map((inc) => {
-          const o = optimistic.current[inc.incident_id];
-          if (o && inc.status !== 'open') delete optimistic.current[inc.incident_id];
-          return o && inc.status === 'open' ? { ...inc, ...o } : inc;
-        });
-        setLive({ ...s, incidents });
-        setConnected(true);
-      } catch {
-        if (active) setConnected(false);
-      }
-    };
-    tick();
-    const id = setInterval(tick, POLL_MS);
+    if (!assets) return;
+    const d = new SimDriver(assets, null);
+    d.setAuto(auto);
+    driverRef.current = d;
+    void d.init();
+    setLive(d.snapshot());
+    const id = setInterval(() => {
+      d.tick(1);
+      setLive(d.snapshot());
+    }, 1000);
     return () => {
-      active = false;
       clearInterval(id);
+      driverRef.current = null;
     };
-  }, [provider]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets]);
+
+  useEffect(() => {
+    driverRef.current?.setAuto(auto);
+  }, [auto]);
 
   const fmi = useFmiWind(assets?.municipality.fmi.place ?? 'Sysmä');
 
-  const segChildren = useMemo(
-    () => (assets ? buildSegmentChildren(assets.feeders) : null),
-    [assets]
-  );
-
-  const elapsedMin = useMemo(() => {
-    if (!assets || !live.scenario) return 0;
-    const start = new Date(assets.scenario.startWallClock).getTime();
-    return (new Date(live.scenario.sim_clock).getTime() - start) / 60000;
-  }, [assets, live.scenario]);
-
-  const wind = assets && live.scenario ? windAt(assets.scenario, elapsedMin) : null;
+  const segChildren = useMemo(() => (assets ? buildSegmentChildren(assets.feeders) : null), [assets]);
+  const elapsedMin = live.scenario?.elapsed_min ?? 0;
 
   const de = useMemo(
     () => (assets ? deEnergizedFromIncidents(assets.topology, live.incidents) : null),
@@ -116,17 +100,11 @@ export default function App() {
   const sub: KpiSub = useMemo(() => {
     const active = live.incidents.filter((i) => i.status !== 'restored');
     const restoredList = live.incidents.filter((i) => i.status === 'restored');
-    const lastRestored = restoredList
-      .map((i) => i.restored_at)
-      .filter(Boolean)
-      .sort()
-      .pop() ?? null;
+    const lastRestored = restoredList.map((i) => i.restored_at).filter(Boolean).sort().pop() ?? null;
     const totalKp = assets?.topology.counts.kayttopaikat ?? 0;
     const now = live.scenario ? new Date(live.scenario.sim_clock).getTime() : 0;
     let maxOutMin = 0;
-    for (const i of active) {
-      if (i.started_at) maxOutMin = Math.max(maxOutMin, (now - new Date(i.started_at).getTime()) / 60000);
-    }
+    for (const i of active) if (i.started_at) maxOutMin = Math.max(maxOutMin, (now - new Date(i.started_at).getTime()) / 60000);
     return {
       totalKp,
       pctOut: totalKp ? (kpis.customersOut / totalKp) * 100 : 0,
@@ -141,47 +119,24 @@ export default function App() {
 
   const gantt = useMemo(() => buildCrewGantt(live.events, live.crews), [live.events, live.crews]);
   const alerts = useMemo(() => toAlerts(live.events), [live.events]);
-  const stormFront = useMemo(
-    () => (assets ? frontAt(assets.scenario, elapsedMin) : null),
-    [assets, elapsedMin]
-  );
+  const stormFront = useMemo(() => (assets ? frontAt(assets.scenario, elapsedMin) : null), [assets, elapsedMin]);
 
   const selectedIncident = live.incidents.find((i) => i.incident_id === selected) ?? null;
   const suggestions: Record<string, Suggestion | null> = useMemo(() => {
     if (!assets) return {};
     const out: Record<string, Suggestion | null> = {};
-    for (const i of live.incidents) {
-      if (i.status === 'open') out[i.incident_id] = suggestCrew(assets, live.crews, i);
-    }
+    for (const i of live.incidents) if (i.status === 'open') out[i.incident_id] = suggestCrew(assets, live.crews, i);
     return out;
   }, [assets, live.crews, live.incidents]);
   const suggested = selectedIncident ? suggestions[selectedIncident.incident_id] ?? null : null;
 
-  async function dispatch(incidentId: string, crewId: string, etaMin: number) {
-    if (!provider) return;
-    optimistic.current[incidentId] = { status: 'assigned', crew_id: crewId, eta_min: etaMin };
-    setLive((prev) => ({
-      ...prev,
-      incidents: prev.incidents.map((i) =>
-        i.incident_id === incidentId ? { ...i, status: 'assigned', crew_id: crewId, eta_min: etaMin } : i
-      ),
-    }));
-    try {
-      await provider.dispatch(incidentId, crewId, etaMin);
-    } catch (e) {
-      setError(String(e));
-    }
+  function drive(fn: (d: SimDriver) => void) {
+    const d = driverRef.current;
+    if (!d) return;
+    fn(d);
+    setLive(d.snapshot());
   }
-
-  // Drag incident card onto a crew row → dispatch (same path as suggest→confirm).
-  function assignToCrew(incidentId: string, crewId: string) {
-    if (!assets) return;
-    const fault = assets.scenario.faults.find((f) => f.incident_id === incidentId);
-    const crew = live.crews.find((c) => c.crew_id === crewId);
-    if (!fault || !crew) return;
-    const eta = etaMinutes(parseFloat(crew.lat), parseFloat(crew.lon), fault.lat, fault.lon);
-    dispatch(incidentId, crewId, eta);
-  }
+  const dispatch = (incidentId: string, crewId: string) => drive((d) => d.assign(incidentId, crewId));
 
   if (error) return <div className="fullscreen error">Error: {error}</div>;
   if (!assets) return <div className="fullscreen">Loading grid…</div>;
@@ -193,15 +148,15 @@ export default function App() {
         kpis={kpis}
         sub={sub}
         stormName={assets.scenario.storm.name}
-        wind={wind}
+        wind={live.wind}
         fmiWind={fmi}
-        connected={connected}
-        canReset={provider?.canReset ?? false}
-        onPlay={() => provider?.play()}
-        onPause={() => provider?.pause()}
-        onSpeed={(v) => provider?.setSpeed(v)}
+        auto={auto}
+        onToggleAuto={() => setAuto((v) => !v)}
+        onPlay={() => drive((d) => d.play())}
+        onPause={() => drive((d) => d.pause())}
+        onSpeed={(v) => drive((d) => d.setSpeed(v))}
         onReset={() => {
-          provider?.reset();
+          drive((d) => d.reset());
           setSelected(null);
         }}
       />
@@ -223,7 +178,7 @@ export default function App() {
           simNowIso={live.scenario?.sim_clock}
           selectedId={selected}
           onSelect={setSelected}
-          onDispatch={dispatch}
+          onDispatch={(incidentId, crewId) => dispatch(incidentId, crewId)}
         />
         <CrewPanel
           crews={live.crews}
@@ -231,21 +186,16 @@ export default function App() {
           simClockIso={live.scenario?.sim_clock}
           shiftStartIso={assets.scenario.startWallClock}
           shiftEndIso={new Date(new Date(assets.scenario.startWallClock).getTime() + 8 * 3600_000).toISOString()}
-          onAssign={assignToCrew}
+          onAssign={(incidentId, crewId) => dispatch(incidentId, crewId)}
         />
         {selectedIncident && (
           <FaultDetail
             incident={selectedIncident}
             suggested={suggested}
             simNowIso={live.scenario?.sim_clock}
-            onDispatch={dispatch}
+            onDispatch={(incidentId, crewId) => dispatch(incidentId, crewId)}
             onClose={() => setSelected(null)}
           />
-        )}
-        {isDevMode() && !connected && (
-          <div className="hint">
-            Start the simulator: <code>python -m simulator run --serve --play</code>
-          </div>
         )}
       </div>
       <EventsTicker alerts={alerts} />
@@ -284,8 +234,7 @@ function suggestCrew(
   let best: { crew: Crew; etaMin: number } | null = null;
   let bestKm = Infinity;
   for (const c of crews) {
-    if (c.status !== 'idle') continue;
-    if (!c.skills.split(',').includes(required)) continue;
+    if (c.status !== 'idle' || !c.skills.split(',').includes(required)) continue;
     const km = haversineKm(parseFloat(c.lat), parseFloat(c.lon), fault.lat, fault.lon);
     if (km < bestKm) {
       bestKm = km;

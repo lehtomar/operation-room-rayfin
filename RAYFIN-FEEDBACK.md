@@ -159,3 +159,22 @@ things that shaped the whole architecture were platform gaps, both logged above:
 **no anonymous/public read on Fabric** (forced a dual dev/prod provider) and
 **no sanctioned headless write path** (used TDS + Entra token). Address those two
 and this class of real-time data app becomes dramatically simpler on Rayfin.
+
+## 2026-07-02 — Post-demo: deployed simulation ran nowhere
+
+### Friction: a Fabric data app is frontend + DB, but has no place to run a loop
+- **Tried**: deploy the app and press ▶ in the portal.
+- **Happened**: nothing animated. The compressed-time engine (advance clock,
+  fire faults, move crews) only ran in the local Python `run` loop. A Fabric data
+  app hosts static content + a SQL DB + GraphQL, but there is **no serverless
+  compute hook** to run a background simulation/agent loop in the workspace, and
+  the deployed static app can't reach a developer's `localhost` simulator.
+- **Instead**: moved the engine **into the browser** — a client-side `SimDriver`
+  seeded from the bundled scenario + topology is now the source of truth, so the
+  deployed app is fully self-contained (press ▶ and it runs). Backend writes are
+  optional/best-effort. The Python simulator + TDS + KQL remain as the
+  server-side / multi-viewer / RTI-ready path.
+- **Platform should**: offer a first-class "background job / function" that a
+  Rayfin data app can schedule or run continuously in the workspace (with DB
+  access), so simulators, ingestion, and agent loops have somewhere to live
+  without a babysat local process.

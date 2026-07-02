@@ -27,8 +27,8 @@ interface TopBarProps {
   stormName: string;
   wind: Wind | null;
   fmiWind: FmiWind | null;
-  connected: boolean;
-  canReset: boolean;
+  auto: boolean;
+  onToggleAuto: () => void;
   onPlay: () => void;
   onPause: () => void;
   onSpeed: (v: number) => void;
@@ -77,11 +77,16 @@ export function TopBar(props: TopBarProps) {
             </button>
           ))}
         </div>
-        {props.canReset && (
-          <button className="pbtn reset" onClick={props.onReset} title="Reset scenario">
-            ⟲
-          </button>
-        )}
+        <button
+          className={`sbtn auto ${props.auto ? 'active' : ''}`}
+          onClick={props.onToggleAuto}
+          title="Auto-dispatch nearest skilled crew"
+        >
+          AUTO
+        </button>
+        <button className="pbtn reset" onClick={props.onReset} title="Reset scenario">
+          ⟲
+        </button>
       </div>
 
       <div className="kpis">
@@ -135,7 +140,7 @@ export function TopBar(props: TopBarProps) {
       </div>
 
       <div className="clockbox">
-        <span className={`conn-dot ${props.connected ? 'ok' : 'bad'}`} />
+        <span className="conn-dot ok" title="Live (in-browser engine)" />
         <div>
           <div className="sim-time">{clock(scenario?.sim_clock)}</div>
           <div className="sim-date">{dateStr(scenario?.sim_clock)}</div>

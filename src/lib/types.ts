@@ -75,7 +75,14 @@ export interface ScenarioMeta {
   id: string;
   name: string;
   simDurationMin: number;
+  defaultSpeed?: number;
   startWallClock: string;
+  crews: {
+    crew_id: string;
+    callsign: string;
+    skills: string[];
+    depot: { lat: number; lon: number };
+  }[];
   storm: {
     name: string;
     direction: string;
@@ -86,6 +93,10 @@ export interface ScenarioMeta {
   faults: {
     incident_id: string;
     seg_id: string;
+    feeder_id: string;
+    ss_id: string;
+    offsetMin: number;
+    repair_effort_min: number;
     lat: number;
     lon: number;
     fault_type: string;
