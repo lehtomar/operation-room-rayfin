@@ -11,7 +11,7 @@
   },
   "gridgen": {
     "transformerCount": { "min": 120, "max": 180 },
-    "feederCount": 7,
+    "feederCount": 6,
     "kayttopaikatTarget": 2900,
     "substations": [
       { "id": "SS-SYSMA", "name": "Sysmä", "seedPlaceName": "Sysmä" },

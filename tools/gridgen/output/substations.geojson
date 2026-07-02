@@ -1,0 +1,9 @@
+{
+"type": "FeatureCollection",
+"name": "substations",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "ss_id": "SS-SYSMA", "name": "Sysmä" }, "geometry": { "type": "Point", "coordinates": [ 25.714265606106601, 61.506911619177885 ] } },
+{ "type": "Feature", "properties": { "ss_id": "SS-NUORAMOINEN", "name": "Nuoramoinen" }, "geometry": { "type": "Point", "coordinates": [ 25.858266745864199, 61.435471790894624 ] } }
+]
+}
