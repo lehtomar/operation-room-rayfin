@@ -1,6 +1,6 @@
 import type { GridAssets } from '../grid/assets';
 import { haversineKm, etaMinutes } from '../lib/geo';
-import type { Crew, GridEventRow, Incident, LiveState, ScenarioMeta, Topology } from '../lib/types';
+import type { Crew, GridEventRow, Incident, LiveState, RouteMap, ScenarioMeta, Topology } from '../lib/types';
 import { windAt } from '../lib/wind';
 
 const CREW_SPEED_KMH = 60;
@@ -33,6 +33,11 @@ interface CrewState {
   depotLat: number;
   depotLon: number;
   current_incident_id: string | null;
+  locationId: string; // routing origin id: depot id or last incident id
+  route: [number, number][] | null; // [lon,lat] road polyline being driven
+  routeCum: number[]; // cumulative km per vertex
+  routeDist: number; // km driven along the route
+  routeTotal: number; // total km
 }
 interface IncidentState {
   incident_id: string;
@@ -62,6 +67,8 @@ interface IncidentState {
 export class SimDriver {
   private meta: ScenarioMeta;
   private topo: Topology;
+  private routes: RouteMap;
+  private depotIdByCrew = new Map<string, string>();
   private start: Date;
   private simClock: Date;
   playing = false;
@@ -81,6 +88,14 @@ export class SimDriver {
   ) {
     this.meta = assets.scenario;
     this.topo = assets.topology;
+    this.routes = assets.routes ?? {};
+    // Depot ids must match routegen.py: unique depot coords in crew order.
+    const depotIds = new Map<string, string>();
+    for (const c of this.meta.crews) {
+      const key = `${c.depot.lat.toFixed(6)},${c.depot.lon.toFixed(6)}`;
+      if (!depotIds.has(key)) depotIds.set(key, `DEPOT-${depotIds.size}`);
+      this.depotIdByCrew.set(c.crew_id, depotIds.get(key)!);
+    }
     this.start = new Date(this.meta.startWallClock);
     this.simClock = new Date(this.meta.startWallClock);
     this.speed = this.meta.defaultSpeed ?? 24;
@@ -127,6 +142,11 @@ export class SimDriver {
         depotLat: c.depot.lat,
         depotLon: c.depot.lon,
         current_incident_id: null,
+        locationId: this.depotIdByCrew.get(c.crew_id) ?? 'DEPOT-0',
+        route: null,
+        routeCum: [],
+        routeDist: 0,
+        routeTotal: 0,
       });
     }
     if (persist && this.persist) {
@@ -219,7 +239,19 @@ export class SimDriver {
     const inc = this.incidents.get(incidentId);
     const crew = this.crews.get(crewId);
     if (!inc || !crew || inc.status !== 'open' || crew.status !== 'idle') return;
-    const eta = etaMinutes(crew.lat, crew.lon, inc.lat, inc.lon);
+    // Follow the precomputed road route from the crew's current location.
+    const route = this.routes[`${crew.locationId}->${incidentId}`];
+    let eta: number;
+    if (route && route.coords.length >= 2) {
+      crew.route = route.coords;
+      crew.routeCum = cumulativeKm(route.coords);
+      crew.routeTotal = crew.routeCum[crew.routeCum.length - 1];
+      crew.routeDist = 0;
+      eta = Math.max(1, Math.round((crew.routeTotal / CREW_SPEED_KMH) * 60));
+    } else {
+      crew.route = null;
+      eta = etaMinutes(crew.lat, crew.lon, inc.lat, inc.lon);
+    }
     inc.status = 'assigned';
     inc.crew_id = crewId;
     inc.eta_min = eta;
@@ -228,6 +260,15 @@ export class SimDriver {
     this.emit('crew_status', crewId, inc.feeder_id, { assigned: incidentId, eta_min: eta });
     this.persist?.incident(this.incidentRow(inc)).catch(() => {});
     this.persist?.crew(crewId, { status: 'enroute', current_incident_id: incidentId }).catch(() => {});
+  }
+
+  private arriveOnSite(crew: CrewState, inc: IncidentState, incId: string): void {
+    crew.status = 'onsite';
+    inc.status = 'onsite';
+    this.onsiteAt.set(crew.crew_id, new Date(this.simClock));
+    this.emit('crew_status', crew.crew_id, inc.feeder_id, { onsite: incId });
+    this.persist?.crew(crew.crew_id, { lat: crew.lat.toFixed(6), lon: crew.lon.toFixed(6), status: 'onsite' }).catch(() => {});
+    this.persist?.incident(this.incidentRow(inc)).catch(() => {});
   }
 
   private moveCrews(dtSimSec: number): void {
@@ -239,21 +280,35 @@ export class SimDriver {
       const inc = this.incidents.get(incId);
       if (!inc) continue;
       if (crew.status === 'enroute') {
-        const dist = haversineKm(crew.lat, crew.lon, inc.lat, inc.lon);
-        if (dist <= Math.max(ARRIVE_KM, stepKm)) {
-          crew.lat = inc.lat;
-          crew.lon = inc.lon;
-          crew.status = 'onsite';
-          inc.status = 'onsite';
-          this.onsiteAt.set(crew.crew_id, new Date(this.simClock));
-          this.emit('crew_status', crew.crew_id, inc.feeder_id, { onsite: incId });
-          this.persist?.crew(crew.crew_id, { lat: crew.lat.toFixed(6), lon: crew.lon.toFixed(6), status: 'onsite' }).catch(() => {});
-          this.persist?.incident(this.incidentRow(inc)).catch(() => {});
+        if (crew.route) {
+          // drive along the road polyline
+          crew.routeDist += stepKm;
+          if (crew.routeDist >= crew.routeTotal) {
+            crew.lat = inc.lat;
+            crew.lon = inc.lon;
+            crew.route = null;
+            crew.locationId = incId;
+            this.arriveOnSite(crew, inc, incId);
+          } else {
+            const [lon, lat] = pointAlong(crew.route, crew.routeCum, crew.routeDist);
+            crew.lat = lat;
+            crew.lon = lon;
+            if (persistPos) this.persist?.crew(crew.crew_id, { lat: lat.toFixed(6), lon: lon.toFixed(6) }).catch(() => {});
+          }
         } else {
-          const frac = stepKm / dist;
-          crew.lat += (inc.lat - crew.lat) * frac;
-          crew.lon += (inc.lon - crew.lon) * frac;
-          if (persistPos) this.persist?.crew(crew.crew_id, { lat: crew.lat.toFixed(6), lon: crew.lon.toFixed(6) }).catch(() => {});
+          // no road route available -> straight-line fallback
+          const dist = haversineKm(crew.lat, crew.lon, inc.lat, inc.lon);
+          if (dist <= Math.max(ARRIVE_KM, stepKm)) {
+            crew.lat = inc.lat;
+            crew.lon = inc.lon;
+            crew.locationId = incId;
+            this.arriveOnSite(crew, inc, incId);
+          } else {
+            const frac = stepKm / dist;
+            crew.lat += (inc.lat - crew.lat) * frac;
+            crew.lon += (inc.lon - crew.lon) * frac;
+            if (persistPos) this.persist?.crew(crew.crew_id, { lat: crew.lat.toFixed(6), lon: crew.lon.toFixed(6) }).catch(() => {});
+          }
         }
       } else {
         const onsite = this.onsiteAt.get(crew.crew_id) ?? this.simClock;
@@ -315,6 +370,7 @@ export class SimDriver {
       lat: c.lat.toFixed(6),
       lon: c.lon.toFixed(6),
       current_incident_id: c.current_incident_id,
+      route: c.status === 'enroute' && c.route ? c.route : null,
     }));
     const incidents: Incident[] = [...this.incidents.values()].map((i) => ({
       incident_id: i.incident_id,
@@ -347,4 +403,24 @@ export class SimDriver {
       events: this.events.slice(),
     };
   }
+}
+
+function cumulativeKm(coords: [number, number][]): number[] {
+  const cum = [0];
+  for (let i = 1; i < coords.length; i++) {
+    cum[i] = cum[i - 1] + haversineKm(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
+  }
+  return cum;
+}
+
+function pointAlong(coords: [number, number][], cum: number[], distKm: number): [number, number] {
+  if (distKm <= 0) return coords[0];
+  const total = cum[cum.length - 1];
+  if (distKm >= total) return coords[coords.length - 1];
+  let i = 1;
+  while (i < cum.length && cum[i] < distKm) i++;
+  const f = (distKm - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
+  const a = coords[i - 1];
+  const b = coords[i];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
 }

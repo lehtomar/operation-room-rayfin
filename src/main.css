@@ -92,6 +92,7 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(-
 .lg-line { width: 18px; height: 0; border-top: 2px solid var(--ok); }
 .lg-line.dead { border-top: 2px dashed var(--danger); }
 .lg-line.front { border-top: 2px dashed #fb923c; }
+.lg-line.route { border-top: 2px dashed var(--ok); }
 .lg-sq { width: 9px; height: 9px; background: #2dd4bf; }
 .lg-sq.out { background: var(--danger); }
 .lg-dot { width: 9px; height: 9px; border-radius: 50%; }

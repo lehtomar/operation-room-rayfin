@@ -1,5 +1,5 @@
 import type { FeatureCollection } from 'geojson';
-import type { Municipality, ScenarioMeta, Topology } from '../lib/types';
+import type { Municipality, RouteMap, ScenarioMeta, Topology } from '../lib/types';
 
 export interface BasemapConfig {
   provider: 'mml-wmts' | 'mtk-vector';
@@ -13,6 +13,7 @@ export interface GridAssets {
   kayttopaikat: FeatureCollection;
   feeders: FeatureCollection;
   topology: Topology;
+  routes: RouteMap;
   scenario: ScenarioMeta;
   municipality: Municipality;
   basemap: BasemapConfig;
@@ -32,6 +33,7 @@ export async function loadGridAssets(): Promise<GridAssets> {
     kayttopaikat,
     feeders,
     topology,
+    routes,
     scenario,
     municipality,
     basemap,
@@ -41,6 +43,7 @@ export async function loadGridAssets(): Promise<GridAssets> {
     j<FeatureCollection>(`${base}/kayttopaikat.geojson`),
     j<FeatureCollection>(`${base}/feeders.geojson`),
     j<Topology>(`${base}/topology.json`),
+    j<RouteMap>(`${base}/routes.json`).catch(() => ({}) as RouteMap),
     j<ScenarioMeta>(`${base}/scenario.json`),
     j<Municipality>(`${base}/municipality.json`),
     j<BasemapConfig>(`${base}/basemap.json`).catch(() => ({ provider: 'mtk-vector' as const })),
@@ -51,6 +54,7 @@ export async function loadGridAssets(): Promise<GridAssets> {
     kayttopaikat,
     feeders,
     topology,
+    routes,
     scenario,
     municipality,
     basemap,

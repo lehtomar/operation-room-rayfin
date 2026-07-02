@@ -45,7 +45,9 @@ export default function App() {
     setLive(d.snapshot());
     const id = setInterval(() => {
       d.tick(1);
-      setLive(d.snapshot());
+      const snap = d.snapshot();
+      setLive(snap);
+      if (import.meta.env.DEV) (window as unknown as { __live?: LiveState }).__live = snap;
     }, 1000);
     return () => {
       clearInterval(id);

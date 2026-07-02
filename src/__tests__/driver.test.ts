@@ -68,4 +68,30 @@ describe('SimDriver', () => {
     d.tick(1);
     expect(d.snapshot().scenario?.sim_clock).toBe(t1);
   });
+
+  it('crews follow the road route polyline, not a straight line', () => {
+    // Route detours north (lat 61.6) before reaching the incident at lat 61.5.
+    const a = fakeAssets() as unknown as { scenario: { faults: { lat: number; lon: number }[] }; routes: unknown };
+    a.scenario.faults[0].lat = 61.5;
+    a.scenario.faults[0].lon = 25.9;
+    a.routes = {
+      'DEPOT-0->INC-1': {
+        coords: [
+          [25.7, 61.5],
+          [25.7, 61.6],
+          [25.9, 61.6],
+          [25.9, 61.5],
+        ],
+        km: 32,
+      },
+    };
+    const d = new SimDriver(a as unknown as GridAssets, null);
+    d.setSpeed(960); // ~16 km per tick → partway along the detour
+    d.play();
+    d.tick(1); // fault fires + auto-dispatch + drive ~16 km along the road
+    const crew = d.snapshot().crews[0];
+    // On the northern leg the crew is well above the straight depot→incident line (lat 61.5).
+    expect(crew.status).toBe('enroute');
+    expect(parseFloat(crew.lat)).toBeGreaterThan(61.55);
+  });
 });

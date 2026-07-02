@@ -40,6 +40,7 @@ export interface Crew {
   lat: string;
   lon: string;
   current_incident_id: string | null;
+  route?: [number, number][] | null; // active road route while enroute
 }
 
 export interface GridEventRow {
@@ -70,6 +71,12 @@ export interface Topology {
   transformer_nodes: Record<string, string>;
   segments: Record<string, SegmentClosure>;
 }
+
+export interface RoadRoute {
+  coords: [number, number][]; // [lon, lat] along real roads
+  km: number;
+}
+export type RouteMap = Record<string, RoadRoute>; // key: "<originId>-><INC-id>"
 
 export interface ScenarioMeta {
   id: string;

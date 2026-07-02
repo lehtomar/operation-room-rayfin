@@ -23,7 +23,7 @@ const LAYER_GROUPS: { key: string; label: string; layers: string[] }[] = [
   { key: 'feeders', label: 'MV feeders', layers: ['feeders-live', 'feeders-dead', 'feeders-hl'] },
   { key: 'transformers', label: 'Transformers', layers: ['transformers'] },
   { key: 'faults', label: 'Faults', layers: ['faults', 'faults-pulse'] },
-  { key: 'crews', label: 'Crews & routes', layers: ['crews', 'crews-label'] },
+  { key: 'crews', label: 'Crews & routes', layers: ['crews', 'crews-label', 'dispatch-routes'] },
   { key: 'weather', label: 'Weather / FMI', layers: ['warning-fill', 'warning-line', 'front-line'] },
 ];
 
@@ -91,6 +91,7 @@ export function MapView(props: MapViewProps) {
       map.addSource('substations', { type: 'geojson', data: assets.substations });
       map.addSource('warning', { type: 'geojson', data: warningFC(assets) });
       map.addSource('front', { type: 'geojson', data: emptyFC() });
+      map.addSource('droutes', { type: 'geojson', data: emptyFC() });
       map.addSource('faults', { type: 'geojson', data: emptyFC() });
       map.addSource('crews', { type: 'geojson', data: emptyFC() });
 
@@ -177,6 +178,10 @@ export function MapView(props: MapViewProps) {
       });
 
       // crews
+      map.addLayer({
+        id: 'dispatch-routes', type: 'line', source: 'droutes',
+        paint: { 'line-color': '#35d07f', 'line-width': 2, 'line-dasharray': [1.5, 1.2], 'line-opacity': 0.7 },
+      });
       map.addLayer({
         id: 'crews', type: 'circle', source: 'crews',
         paint: {
@@ -289,6 +294,7 @@ export function MapView(props: MapViewProps) {
         <LegendRow swatch={<span className="lg-sq out" />} text="Transformer out" />
         <LegendRow swatch={<span className="lg-dot fault" />} text="Fault (pulsing)" />
         <LegendRow swatch={<span className="lg-pill" />} text="Crew (K1…K6)" />
+        <LegendRow swatch={<span className="lg-line route" />} text="Dispatch route" />
         <LegendRow swatch={<span className="lg-line front" />} text="Storm front / FMI" />
       </div>
     </div>
@@ -332,6 +338,7 @@ function applyUpdate(
     faultsFC(p.incidents, faultCoords, p.selectedIncidentId)
   );
   (map.getSource('crews') as maplibregl.GeoJSONSource | undefined)?.setData(crewsFC(p.crews));
+  (map.getSource('droutes') as maplibregl.GeoJSONSource | undefined)?.setData(crewRoutesFC(p.crews));
   (map.getSource('front') as maplibregl.GeoJSONSource | undefined)?.setData(lineFC(p.stormFront));
 }
 
@@ -404,5 +411,18 @@ function crewsFC(crews: Crew[]): FeatureCollection {
       },
       geometry: { type: 'Point', coordinates: [parseFloat(c.lon), parseFloat(c.lat)] },
     })),
+  };
+}
+
+function crewRoutesFC(crews: Crew[]): FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: crews
+      .filter((c) => c.route && c.route.length >= 2)
+      .map((c) => ({
+        type: 'Feature',
+        properties: { crew_id: c.crew_id },
+        geometry: { type: 'LineString', coordinates: c.route as [number, number][] },
+      })),
   };
 }

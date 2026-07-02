@@ -14,6 +14,7 @@ for (const f of ['substations', 'transformers', 'kayttopaikat', 'feeders']) {
   copyFileSync(resolve(grid, `${f}.geojson`), resolve(out, `${f}.geojson`));
 }
 copyFileSync(resolve(grid, 'topology.json'), resolve(out, 'topology.json'));
+copyFileSync(resolve(grid, 'routes.json'), resolve(out, 'routes.json'));
 copyFileSync(
   resolve(root, 'scenarios', 'mauri-2026.json'),
   resolve(out, 'scenario.json')
