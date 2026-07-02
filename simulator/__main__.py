@@ -125,6 +125,42 @@ def cmd_run(args):
     if args.play:
         db.update("ScenarioStates", {"scenario_id": eng.scenario["id"]},
                   {"playing": 1, "status": "running", "updated_at": datetime.now()})
+
+    httpd = None
+    if args.serve:
+        from .server import start_server
+        control_db = Db()
+
+        def on_control(payload):
+            path = payload.get("_path", "")
+            action = payload.get("action")
+            now = datetime.now()
+            sid = {"scenario_id": eng.scenario["id"]}
+            if path.startswith("/dispatch"):
+                control_db.insert("Assignments", {
+                    "id": str(uuid.uuid4()),
+                    "incident_id": payload["incident_id"],
+                    "crew_id": payload["crew_id"],
+                    "action": payload.get("action", "dispatch"),
+                    "eta_min": int(payload.get("eta_min", 0)),
+                    "ts": now,
+                })
+                return {"ok": True}
+            if action == "play":
+                control_db.update("ScenarioStates", sid, {"playing": 1, "status": "running", "updated_at": now})
+            elif action == "pause":
+                control_db.update("ScenarioStates", sid, {"playing": 0, "status": "paused", "updated_at": now})
+            elif action == "speed":
+                control_db.update("ScenarioStates", sid, {"speed": float(payload["value"]), "updated_at": now})
+            elif action == "reset":
+                eng.reset(control_db)
+            else:
+                return {"ok": False, "error": "unknown action"}
+            return {"ok": True}
+
+        httpd = start_server(args.port, lambda: eng.snapshot, on_control)
+        print(f"Dev state/control server on http://127.0.0.1:{args.port}")
+
     print(f"Simulator running (auto={args.auto}, tick={args.tick}s). Ctrl+C to stop.")
     last_print = 0.0
     try:
@@ -152,6 +188,8 @@ def cmd_run(args):
         print("\nStopped.")
     finally:
         db.close()
+        if httpd:
+            httpd.shutdown()
 
 
 def main(argv=None):
@@ -181,6 +219,8 @@ def main(argv=None):
     rp.add_argument("--tick", type=float, default=1.0)
     rp.add_argument("--play", action="store_true", help="start playing immediately")
     rp.add_argument("--exit-on-done", action="store_true")
+    rp.add_argument("--serve", action="store_true", help="expose dev state/control HTTP server")
+    rp.add_argument("--port", type=int, default=8787)
     rp.set_defaults(func=cmd_run)
 
     args = p.parse_args(argv)

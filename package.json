@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "rayfin env --framework vite",
-    "prebuild": "rayfin env --framework vite",
+    "predev": "rayfin env --framework vite && node scripts/sync-assets.mjs",
+    "prebuild": "rayfin env --framework vite && node scripts/sync-assets.mjs",
     "dev": "rayfin up --exclude-services staticHosting && vite",
+    "dev:web": "node scripts/sync-assets.mjs && vite",
     "build": "tsc -b && vite build",
     "build:fabric": "tsc -b && vite build",
     "lint": "eslint .",
@@ -20,6 +21,7 @@
     "@microsoft/rayfin-core": "^1.33.2",
     "@microsoft/rayfin-data": "^1.33.2",
     "@tailwindcss/vite": "^4.1.11",
+    "maplibre-gl": "^5.24.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1"
@@ -30,6 +32,7 @@
     "@testing-library/jest-dom": "^6.4.6",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/geojson": "^7946.0.16",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react-swc": "^4.2.2",

@@ -95,3 +95,36 @@ what I did instead → what the platform should do**.
 - **Platform should**: document `@decimal` precision/scale options (or default to
   a higher scale), and note the (18,2) default prominently — it's a silent
   data-quality trap for geospatial/currency values.
+
+## 2026-07-02 — M3: the read path & a dual-provider workaround
+
+### Friction: no unauthenticated read path → local frontend dev is blocked
+- **Tried**: `@anonymous('read')` so the frontend could read live grid state
+  with just the publishable key (enabling local dev + a public read-only demo).
+- **Happened**: `anonymous` is exported only from
+  `@microsoft/rayfin-core/experimental`, and its own docstring says *"Anonymous
+  data access is not currently supported on Fabric: the CLI rejects any DAB
+  configuration that grants the anonymous role at apply time."* So all reads
+  require `@authenticated` (Fabric SSO), which only works **inside the Fabric
+  portal** — you cannot read your own data from a local `vite` dev server.
+- **Instead**: a **dual DataProvider**. In the Fabric portal, `RayfinProvider`
+  reads/writes via authenticated GraphQL. For local dev, the simulator exposes a
+  tiny HTTP server (`run --serve`) with `/state` + `/control` + `/dispatch`, and
+  `DevProvider` talks to it (no auth). Same normalized shape both ways, so all
+  KPI/de-energization logic is identical.
+- **Platform should**: either support a publishable-key read-only role on Fabric,
+  or ship a documented local dev proxy so builders can run their frontend against
+  real data outside the portal. Today the local dev loop for a data app is rough.
+
+### Pleasant: `rayfin env` + publishable key + docs made the prod path easy
+- The generated `.env.local` (`VITE_RAYFIN_*`, `VITE_FABRIC_*`) matched the
+  scaffold's `bootstrapAuth()` exactly, and `ensureSignedInWithFabric` /
+  `initEmbeddedAuth` are the documented entry points. The production read/write
+  code (`RayfinProvider`) was straightforward to write against the typed
+  `client.data.<Entity>` API. (Validated end-to-end in the portal at M5.)
+
+### Note: resilience — a WebGL/map failure must not blank the app
+- MapLibre `new Map()` throwing in a `useEffect` (e.g. no WebGL) unmounts the
+  whole React root with no error boundary. Wrapped map init in try/catch + an
+  in-map fallback so KPIs and incident data keep working regardless. (Not
+  Rayfin-specific, but a good default for any map-in-Fabric app.)

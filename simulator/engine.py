@@ -96,6 +96,7 @@ class Engine:
             self.scenario["startWallClock"]
         ).replace(tzinfo=None)
         self.state = EngineState()
+        self.snapshot: dict = {}
         self.incident_meta: Dict[str, IncidentMeta] = {}
         for f in self.scenario["faults"]:
             self.incident_meta[f["incident_id"]] = IncidentMeta(
@@ -207,6 +208,7 @@ class Engine:
         speed = float(s["speed"])
 
         if not playing or s["status"] == "done":
+            self._refresh_snapshot(db)
             return {"sim_clock": sim_clock, "playing": playing, "idle": True}
 
         # advance the compressed clock
@@ -236,12 +238,72 @@ class Engine:
             {"scenario_id": self.scenario["id"]},
             {"sim_clock": sim_clock, "status": status, "updated_at": sim_clock},
         )
+        self._refresh_snapshot(db)
         return {
             "sim_clock": sim_clock,
             "elapsed_min": round(elapsed_min, 1),
             "customers_out": self.customers_out(incidents),
             "active": sum(1 for i in incidents.values() if i["status"] != ST_RESTORED),
             "status": status,
+        }
+
+    # -- snapshot for the local dev HTTP server --------------------------
+    def wind_at(self, elapsed_min: float) -> dict:
+        pts = self.scenario["storm"]["wind"]
+        prev = pts[0]
+        for p in pts:
+            if p["offsetMin"] <= elapsed_min:
+                prev = p
+            else:
+                nxt = p
+                span = nxt["offsetMin"] - prev["offsetMin"] or 1
+                f = (elapsed_min - prev["offsetMin"]) / span
+                return {
+                    "speed_ms": round(prev["speed_ms"] + (nxt["speed_ms"] - prev["speed_ms"]) * f, 1),
+                    "gust_ms": round(prev["gust_ms"] + (nxt["gust_ms"] - prev["gust_ms"]) * f, 1),
+                    "dir_deg": round(prev["dir_deg"] + (nxt["dir_deg"] - prev["dir_deg"]) * f),
+                }
+        return {"speed_ms": prev["speed_ms"], "gust_ms": prev["gust_ms"], "dir_deg": prev["dir_deg"]}
+
+    def _iso(self, v):
+        return v.isoformat() if isinstance(v, datetime) else v
+
+    def _refresh_snapshot(self, db: Db) -> None:
+        srows = db.query(
+            "SELECT TOP 1 * FROM ScenarioStates WHERE scenario_id = ?",
+            [self.scenario["id"]],
+        )
+        if not srows:
+            self.snapshot = {}
+            return
+        s = srows[0]
+        sim_clock = s["sim_clock"]
+        elapsed_min = (sim_clock - self.start).total_seconds() / 60.0
+        crews = db.query("SELECT * FROM Crews")
+        incidents = db.query("SELECT * FROM Incidents")
+        for c in crews:
+            c["shift_start"] = self._iso(c.get("shift_start"))
+            c["shift_end"] = self._iso(c.get("shift_end"))
+            c["updated_at"] = self._iso(c.get("updated_at"))
+            c["id"] = str(c["id"])
+        for i in incidents:
+            i["started_at"] = self._iso(i.get("started_at"))
+            i["restored_at"] = self._iso(i.get("restored_at"))
+            i["updated_at"] = self._iso(i.get("updated_at"))
+            i["id"] = str(i["id"])
+        self.snapshot = {
+            "scenario": {
+                "scenario_id": s["scenario_id"],
+                "status": s["status"],
+                "playing": bool(s["playing"]),
+                "speed": float(s["speed"]),
+                "sim_clock": self._iso(sim_clock),
+                "elapsed_min": round(elapsed_min, 1),
+                "start": self._iso(self.start),
+            },
+            "wind": self.wind_at(elapsed_min),
+            "crews": crews,
+            "incidents": incidents,
         }
 
     def _fire_faults(self, db, sim_clock, elapsed_min, incidents) -> None:
