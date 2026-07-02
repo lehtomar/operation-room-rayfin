@@ -1,0 +1,7 @@
+{
+  "note": "Copy to db.local.json (gitignored). The simulator connects over TDS using an Entra token from `az account get-access-token --resource https://database.windows.net/`. Retrieve these values from GET /v1/workspaces/{ws}/SQLDatabases/{id}.",
+  "serverFqdn": "<server>.database.fabric.microsoft.com,1433",
+  "databaseName": "<AppName>-<sqldb-item-id>",
+  "workspaceId": "477a0fb4-6374-48b3-a2c8-a729344c9091",
+  "sqlDbItemId": "<sqldb-item-id>"
+}

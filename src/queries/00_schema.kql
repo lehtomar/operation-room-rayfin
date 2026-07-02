@@ -1,0 +1,32 @@
+// Verkkovahti — Eventhouse (KQL) schema for the real-time grid streams.
+//
+// These are the "RTI-ready" template assets. The demo runs SQL-only (the
+// simulator writes to the Fabric SQL DB and the frontend polls via GraphQL),
+// but this schema mirrors the SQL entities 1:1 so a Fabric Eventstream +
+// Eventhouse can be dropped in without touching the frontend contract.
+//
+// Run standalone in a KQL database (Eventhouse) query editor.
+
+.create table grid_events (
+    ts: datetime,
+    event_type: string,     // fault | restoration | crew_status | transformer_status
+    entity_id: string,      // feeder segment id (F04-S09) or transformer id
+    feeder_id: string,
+    payload: dynamic         // { incident_id, type, kp, ... }
+)
+
+.create table crew_telemetry (
+    ts: datetime,
+    crew_id: string,
+    lat: real,
+    lon: real,
+    status: string           // idle | enroute | onsite | returning | offshift
+)
+
+.create table assignments (
+    ts: datetime,
+    incident_id: string,
+    crew_id: string,
+    action: string,          // dispatch | cancel
+    eta: int                 // minutes
+)

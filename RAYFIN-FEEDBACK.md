@@ -56,3 +56,42 @@ what I did instead → what the platform should do**.
   writer. **Will update this entry with what actually worked.**
 - **Platform should**: document (and ideally sanction) a service-principal /
   server-to-server write path for Rayfin data, for ingestion/simulator workloads.
+
+## 2026-07-02 — M2: data model deploy & the TDS write path (the hard spot, resolved)
+
+### Pleasant surprise: `rayfin up` is smoothly idempotent
+- **Tried**: redeploy the schema onto the pre-existing (but unreachable) app
+  backend after adding 5 entities.
+- **Happened**: `rayfin up --workspace-id <ws> --exclude-services staticHosting`
+  reused the same item id (`4f2dab30…`), regenerated + applied the DAB config in
+  ~7 s, and brought the backend back. The dry-run text always says "Create
+  Rayfin item" even when it updates — mildly confusing but harmless.
+- **Platform should**: make dry-run distinguish create vs update; and read the
+  active workspace from `.deployments.json` so `--workspace-id` isn't needed on
+  every `up` (plain `up` defaulted to "My Workspace").
+
+### RESOLVED: headless simulator CAN write over TDS
+- **Tried**: find a write path for a headless Python simulator (GraphQL needs a
+  Fabric-SSO bearer; publishable key can't write `@authenticated` entities).
+- **Happened**: the Fabric data app provisions a real **SQL Database child item**
+  (`type: SQLDatabase`, `SQLDbNative`). Its connection string is retrievable via
+  `GET /v1/workspaces/{ws}/SQLDatabases/{id}` → `properties.connectionString` /
+  `serverFqdn` / `databaseName`. Connecting with **pyodbc (ODBC Driver 18)** and
+  an **Entra token** (`az account get-access-token --resource
+  https://database.windows.net/`, packed into `attrs_before[1256]`) works — all
+  entity tables are present (pluralized: `Crews`, `Incidents`, …) and writable.
+- **Instead of** the GraphQL fallback, the simulator writes directly over TDS.
+- **Platform should**: surface the SQL DB connection string in `rayfin up status`
+  / `.deployments.json` (right now you must call the Fabric REST API for it), and
+  document the "external writer over TDS with an Entra token" pattern — it's the
+  natural fit for ingestion/simulator workloads.
+
+### Friction: `@decimal()` silently defaults to scale 2 (≈1 km for lat/lon)
+- **Tried**: `@decimal()` for crew `lat`/`lon`.
+- **Happened**: the generated MSSQL column is `decimal(18,2)` — 2 dp, ~1.1 km at
+  61°N. Map positions would snap to a coarse grid. `@decimal` has no documented
+  `precision`/`scale` option.
+- **Instead**: store coordinates as `@text({ max: 20 })` and parse floats.
+- **Platform should**: document `@decimal` precision/scale options (or default to
+  a higher scale), and note the (18,2) default prominently — it's a silent
+  data-quality trap for geospatial/currency values.

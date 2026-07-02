@@ -1,0 +1,24 @@
+// Projected standard-compensation (vakiokorvaus) risk €.
+// Tiers are % of a customer's annual distribution fee by continuous outage
+// duration (Sähkömarkkinalaki 588/2013 §100). Kept in config/municipality.*.json;
+// duplicated here as an inline lookup so the query runs standalone.
+let annual_fee = 550.0;                 // assumed €/customer/year
+let tiers = datatable(hours:int, pct:int) [
+    12, 10,  24, 25,  72, 50,  120, 100,  192, 150,  288, 200
+];
+let now = datetime(2026-01-15 22:00:00);   // or now() against a live stream
+grid_events
+| where event_type in ('fault', 'restoration')
+| extend incident_id = tostring(payload.incident_id), kp = toint(payload.kp)
+| summarize arg_max(ts, event_type, kp) by incident_id
+| where event_type == 'fault'
+| extend outage_h = datetime_diff('minute', now, ts) / 60.0
+| extend pct = toint(
+    iff(outage_h >= 288, 200,
+    iff(outage_h >= 192, 150,
+    iff(outage_h >= 120, 100,
+    iff(outage_h >= 72, 50,
+    iff(outage_h >= 24, 25,
+    iff(outage_h >= 12, 10, 0)))))))
+| extend comp_eur = kp * annual_fee * pct / 100.0
+| summarize projected_compensation_eur = sum(comp_eur), customers_out = sum(kp)

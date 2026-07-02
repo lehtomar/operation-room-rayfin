@@ -1,0 +1,6 @@
+// Latest known position + status for every crew (arg_max materialization).
+// The frontend interpolates between successive polls client-side.
+crew_telemetry
+| summarize arg_max(ts, lat, lon, status) by crew_id
+| project crew_id, lat, lon, status, as_of = ts
+| order by crew_id asc

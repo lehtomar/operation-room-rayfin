@@ -1,0 +1,13 @@
+// Current energization state per feeder segment (arg_max materialization).
+// The latest fault/restoration event per segment decides whether it is live.
+// A segment is DE-ENERGIZED when its most recent event is a 'fault'.
+grid_events
+| where event_type in ('fault', 'restoration')
+| summarize arg_max(ts, event_type, feeder_id, payload) by entity_id
+| project
+    segment_id = entity_id,
+    feeder_id,
+    energized = (event_type == 'restoration'),
+    last_change = ts,
+    incident_id = tostring(payload.incident_id)
+| order by feeder_id asc, segment_id asc

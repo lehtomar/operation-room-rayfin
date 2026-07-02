@@ -1,0 +1,15 @@
+// Active incidents ranked by impact (käyttöpaikat × elapsed minutes).
+// Note: `kp` here is the segment's own affected count from the fault payload.
+// The app de-duplicates overlapping feeder segments using the topology closure
+// (shared/topology); a pure-KQL join to a reference topology table would do the
+// same server-side.
+let now = datetime(2026-01-15 22:00:00);   // or now() against a live stream
+grid_events
+| where event_type in ('fault', 'restoration')
+| extend incident_id = tostring(payload.incident_id), kp = toint(payload.kp)
+| summarize arg_max(ts, event_type, entity_id, feeder_id, kp) by incident_id
+| where event_type == 'fault'
+| extend elapsed_min = datetime_diff('minute', now, ts)
+| extend impact = kp * elapsed_min
+| project incident_id, segment_id = entity_id, feeder_id, kp, elapsed_min, impact
+| order by impact desc

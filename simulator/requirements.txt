@@ -1,0 +1,5 @@
+# simulator requirements (install into the interpreter that `python` runs):
+#   python -m pip install -r simulator/requirements.txt
+pyodbc>=5.0
+# Also requires the Microsoft "ODBC Driver 18 for SQL Server" and the Azure CLI
+# (`az login`) for Entra-token auth to the Fabric SQL Database.
