@@ -51,7 +51,33 @@ export function buildStyle(basemap: BasemapConfig): StyleSpecification {
     });
   }
 
+  // Live FMI weather radar (reflectivity). Rendered under the grid, off by
+  // default (it is real-time, decoupled from the replayed storm).
+  sources['fmi-radar'] = {
+    type: 'raster',
+    tiles: [radarTiles(Date.now())],
+    tileSize: 256,
+    attribution: '© Ilmatieteen laitos (FMI)',
+  };
+  layers.push({
+    id: 'fmi-radar',
+    type: 'raster',
+    source: 'fmi-radar',
+    layout: { visibility: 'none' },
+    paint: { 'raster-opacity': 0.6 },
+  });
+
   return { version: 8, glyphs: GLYPHS, sources, layers };
+}
+
+/** FMI open-data WMS GetMap tile template (latest radar frame). */
+export function radarTiles(ts: number): string {
+  return (
+    'https://openwms.fmi.fi/geoserver/wms?service=WMS&version=1.1.1&request=GetMap' +
+    '&layers=Radar:suomi_dbz_eureffin&styles=&format=image/png&transparent=true' +
+    '&srs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}&cacheBust=' +
+    ts
+  );
 }
 
 /** Apply a basemap mode by toggling the two raster layers' visibility. */

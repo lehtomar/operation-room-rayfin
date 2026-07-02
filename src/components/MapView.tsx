@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FeatureCollection, Feature } from 'geojson';
 
 import type { GridAssets } from '../grid/assets';
-import { buildStyle, applyBasemapMode, type BasemapMode } from '../map/basemap';
+import { buildStyle, applyBasemapMode, radarTiles, type BasemapMode } from '../map/basemap';
 import type { Crew, Incident } from '../lib/types';
 
 interface MapViewProps {
@@ -25,6 +25,7 @@ const LAYER_GROUPS: { key: string; label: string; layers: string[] }[] = [
   { key: 'faults', label: 'Faults', layers: ['faults', 'faults-pulse'] },
   { key: 'crews', label: 'Crews & routes', layers: ['crews', 'crews-label', 'dispatch-routes'] },
   { key: 'weather', label: 'Weather / FMI', layers: ['warning-fill', 'warning-line', 'front-line'] },
+  { key: 'radar', label: 'Rain radar (FMI)', layers: ['fmi-radar'] },
 ];
 
 const STATUS_COLOR: Record<string, string> = {
@@ -49,6 +50,7 @@ export function MapView(props: MapViewProps) {
     faults: true,
     crews: true,
     weather: true,
+    radar: false,
   });
   propsRef.current = props;
 
@@ -259,6 +261,19 @@ export function MapView(props: MapViewProps) {
     if (!map || !loadedRef.current) return;
     applyBasemapMode(map, basemap);
   }, [basemap]);
+
+  // --- live radar refresh (latest frame on toggle + every 5 min) ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current || !visible.radar) return;
+    const refresh = () => {
+      const src = map.getSource('fmi-radar') as unknown as { setTiles?: (t: string[]) => void } | undefined;
+      src?.setTiles?.([radarTiles(Date.now())]);
+    };
+    refresh();
+    const id = setInterval(refresh, 300_000);
+    return () => clearInterval(id);
+  }, [visible.radar]);
 
   return (
     <div className="map-root" ref={containerRef}>
