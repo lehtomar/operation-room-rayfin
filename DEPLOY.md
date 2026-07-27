@@ -63,29 +63,39 @@ without the portal, use `python -m simulator run --serve` + `npm run dev:web`
 
 ## Redeploy against another municipality
 
-The app is single-municipality but **config-driven**, so pointing it at a new
-municipality is data + config, not code.
+The app is single-municipality but **config-driven**, and `tools/gridgen`
+downloads the map data it needs, so pointing it at a new municipality is config
+plus one command.
 
-1. **Get MML data.** Download the Maastotietokanta shapefiles covering the target
-   municipality into `mml-data/<SHEET>/` (needs at least `HallintoAlue`,
-   `RakennusPiste`, `TieViiva`, `SahkoPiste`). Keep EPSG:3067.
-
-2. **Add a municipality config.** Copy `config/municipality.sysma.json` to
-   `config/municipality.<id>.json` and edit: `name`, `kuntaCode`, `map.center`,
-   `map.bboxTM35FIN`, `gridgen.mmlDataDir`, `gridgen.substations[].seedPlaceName`,
-   `gridgen.feederCount`, the `compensation` tiers/fee, and `fmi.place`.
-
-3. **Generate the grid.**
+1. **Add a municipality config.**
    ```bash
-   MUNICIPALITY=<id> python tools/gridgen/gridgen.py
-   MUNICIPALITY=<id> python -m pytest tools/gridgen -q     # verify topology
+   python -m tools.gridgen municipalities --search <text>   # find the exact name
+   python -m tools.gridgen config -m <municipality>         # writes config/municipality.<slug>.json
    ```
-   Outputs land in `tools/gridgen/output/`.
+   Review the generated file: `feederCount`, `substationCount`,
+   `buildingsPerTransformer`, the `compensation` tiers/fee, and `fmi.place`.
+   Name the substations by adding `gridgen.substations[] = {id, name}` (largest
+   population centre first).
 
-4. **Author a scenario.** Copy `scenarios/mauri-2026.json` to
+2. **Generate the grid.** `build` downloads and caches the MML map sheets
+   covering the municipality (`mml-data/cache/`, gitignored), then generates.
+   ```bash
+   python -m tools.gridgen tiles -m <municipality>          # preview the sheets
+   python -m tools.gridgen build -m <municipality> --force  # writes tools/gridgen/output/
+   GRIDGEN_OUTPUT=tools/gridgen/output python -m pytest tools/gridgen -q
+   ```
+   `--force` is required because regenerating changes the `seg_id`s that
+   existing scenarios reference. Use `--out <dir>` to keep the Sysmä grid intact.
+
+3. **Author a scenario.** Copy `scenarios/mauri-2026.json` to
    `scenarios/<storm>.json`, pick real `seg_id`s from
    `tools/gridgen/output/feeders.parquet` (root segments = whole-feeder trips),
    set crew depots, skills and shift. Run any command with `--scenario <storm>`.
+
+4. **Precompute crew routes.**
+   ```bash
+   python tools/gridgen/routegen.py --municipality <id> --scenario <storm>
+   ```
 
 5. **Build + deploy.**
    ```bash

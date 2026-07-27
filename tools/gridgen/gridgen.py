@@ -1,20 +1,22 @@
 """gridgen — generate a geographically-honest synthetic distribution grid for
-Sysmä from local MML (Maastotietokanta) data.
+any Finnish municipality from MML (Maanmittauslaitos) open data.
 
 Pipeline
 --------
-1. Clip to the Sysmä municipality (HallintoAlue, kunta 781).
-2. Buildings (RakennusPiste) inside Sysmä  ->  käyttöpaikat (customer points).
-3. Two primary substations seeded from real SahkoPiste electrical points.
-4. k-means clusters buildings into ~120-180 distribution-transformer areas.
+1. Resolve the municipality polygon (national Kuntajako) and clip to it.
+2. Buildings inside the municipality  ->  käyttöpaikat (customer points).
+3. Primary substations seeded from real MML electrical points where they exist,
+   otherwise placed at the main population centres.
+4. k-means clusters buildings into distribution-transformer areas.
 5. Each transformer -> nearest substation; substation transformers split into
-   feeders; feeders routed along the real road network (TieViiva) as
-   shortest-path trees, then collapsed into feeder *segments* with parent/child
-   topology.
+   feeders; feeders routed along the real road network as shortest-path trees,
+   then collapsed into feeder *segments* with parent/child topology.
 6. The shared `RadialNetwork` computes the downstream closure for every segment.
 7. Outputs GeoJSON (EPSG:4326) + Parquet + topology.json with stable IDs.
 
-Run:  python -m tools.gridgen.gridgen        (from the repo root)
+Map data is downloaded on demand — see `mmlsource.py`.
+
+Run:  python -m tools.gridgen build --municipality Sysmä
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import geopandas as gpd
 import networkx as nx
@@ -34,60 +36,205 @@ from scipy.spatial import cKDTree
 from shapely.geometry import LineString, Point
 from sklearn.cluster import KMeans
 
-# Make `shared.topology` importable when run as a plain script.
+# Make `shared.topology` and `tools.gridgen.*` importable when run as a script.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from shared.topology import RadialNetwork, Segment  # noqa: E402
+from tools.gridgen import mmlsource  # noqa: E402
+from tools.gridgen.mmlsource import (  # noqa: E402
+    LegacyDirSource,
+    MirrorSource,
+    MmlMirror,
+    slugify,
+)
 
 TM35FIN = "EPSG:3067"
 WGS84 = "EPSG:4326"
 
-CONFIG_PATH = REPO_ROOT / "config" / f"municipality.{os.environ.get('MUNICIPALITY', 'sysma')}.json"
-OUTPUT_DIR = Path(__file__).resolve().parent / "output"
+CONFIG_DIR = REPO_ROOT / "config"
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "output"
+
+BUILDINGS_PER_TRANSFORMER = 20
+DEFAULT_FEEDER_COUNT = 6
 
 
 # --------------------------------------------------------------------------
-# Loading & clipping
+# Config
 # --------------------------------------------------------------------------
-def load_config() -> dict:
-    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+def config_path(municipality_id: str | None = None) -> Path:
+    mid = municipality_id or os.environ.get("MUNICIPALITY", "sysma")
+    return CONFIG_DIR / f"municipality.{mid}.json"
 
 
-def load_sysma_boundary(mml_dir: Path):
-    ha = gpd.read_file(mml_dir / "M44_HallintoAlue.shp")
-    sysma = ha[ha["Kunta_ni1"] == "Sysmä"]
-    if sysma.empty:
-        # Fall back to municipality code if the name encoding differs.
-        sysma = ha[ha["Kunta"] == "781"]
-    return sysma.dissolve().geometry.iloc[0]
-
-
-def load_buildings(mml_dir: Path, boundary) -> gpd.GeoDataFrame:
-    rp = gpd.read_file(mml_dir / "M44_RakennusPiste.shp", bbox=boundary.bounds)
-    rp = rp[rp.within(boundary)].reset_index(drop=True)
-    rp["kp_id"] = [f"KP-{i + 1:05d}" for i in range(len(rp))]
-    return rp[["kp_id", "geometry"]]
-
-
-def load_substations(mml_dir: Path, boundary, cfg: dict) -> gpd.GeoDataFrame:
-    sp = gpd.read_file(mml_dir / "M44_SahkoPiste.shp")
-    sp = sp[sp.within(boundary)].reset_index(drop=True)
-    seeds = cfg["gridgen"]["substations"]
-    # Order real electrical points north-to-south and map to configured seeds:
-    # the northern/central point is the "Sysmä" substation, the southern one is
-    # "Nuoramoinen" (both are genuine SahkoPiste locations).
-    sp = sp.sort_values(by="geometry", key=lambda s: s.map(lambda g: -g.y))
-    pts = list(sp.geometry)[: len(seeds)]
-    if len(pts) < len(seeds):
-        raise RuntimeError(
-            f"Need {len(seeds)} substation seed points, found {len(pts)} "
-            "SahkoPiste in Sysmä."
+def load_config(municipality_id: str | None = None) -> dict:
+    path = config_path(municipality_id)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"no municipality config at {path}. Generate one with "
+            "`python -m tools.gridgen config --municipality <name>`."
         )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def default_config(muni: mmlsource.Municipality, overrides: dict | None = None) -> dict:
+    """A ready-to-edit municipality config derived from the Kuntajako polygon."""
+    minx, miny, maxx, maxy = muni.bounds
+    centre = gpd.GeoSeries(
+        [Point((minx + maxx) / 2, (miny + maxy) / 2)], crs=TM35FIN
+    ).to_crs(WGS84)
+    cfg = {
+        "id": muni.slug,
+        "name": muni.name,
+        "kuntaCode": muni.code,
+        "crs": TM35FIN,
+        "map": {
+            "center": {
+                "lon": round(float(centre.x.iloc[0]), 4),
+                "lat": round(float(centre.y.iloc[0]), 4),
+            },
+            "defaultZoom": 11,
+            "bboxTM35FIN": [round(v) for v in muni.bounds],
+        },
+        "gridgen": {
+            "source": "mirror",
+            "mtkYear": mmlsource.DEFAULT_MTK_YEAR,
+            "kuntajakoYear": mmlsource.DEFAULT_KUNTAJAKO_YEAR,
+            "buildingsPerTransformer": BUILDINGS_PER_TRANSFORMER,
+            "feederCount": DEFAULT_FEEDER_COUNT,
+            "substationCount": 2,
+            "roadFactor": 1.3,
+        },
+        "compensation": {
+            "note": (
+                "Standard compensation (vakiokorvaus) per Sähkömarkkinalaki 588/2013 "
+                "§100. Tiers = % of the customer's annual distribution-network fee, by "
+                "continuous outage duration."
+            ),
+            "assumedAnnualDistributionFeeEur": 550,
+            "tiers": [
+                {"hours": 12, "pct": 10},
+                {"hours": 24, "pct": 25},
+                {"hours": 72, "pct": 50},
+                {"hours": 120, "pct": 100},
+                {"hours": 192, "pct": 150},
+                {"hours": 288, "pct": 200},
+            ],
+            "capPct": 200,
+        },
+        "fmi": {
+            "note": "FMI open data WFS; wind observations near the municipality.",
+            "place": muni.name,
+            "fallbackStationFmisid": None,
+        },
+    }
+    if overrides:
+        cfg["gridgen"].update(overrides)
+    return cfg
+
+
+# --------------------------------------------------------------------------
+# Source selection
+# --------------------------------------------------------------------------
+def make_source(
+    cfg: dict,
+    *,
+    cache_dir: Path | None = None,
+    refresh: bool = False,
+    quiet: bool = False,
+) -> MirrorSource | LegacyDirSource:
+    """Build the map-data source described by a municipality config.
+
+    `gridgen.source` is either `"mirror"` (download the sheets covering the
+    municipality — the default) or `"local"` (use a pre-downloaded directory
+    named by `gridgen.mmlDataDir`).
+    """
+    gg = cfg.get("gridgen", {})
+    kind = gg.get("source") or ("local" if gg.get("mmlDataDir") else "mirror")
+
+    if kind == "local":
+        return LegacyDirSource(
+            REPO_ROOT / gg["mmlDataDir"], cfg.get("kuntaCode", ""), cfg["name"]
+        )
+    if kind != "mirror":
+        raise ValueError(f"unknown gridgen.source {kind!r} (expected 'mirror' or 'local')")
+
+    mirror = MmlMirror(
+        cache_dir=Path(cache_dir) if cache_dir else mmlsource.DEFAULT_CACHE_DIR,
+        mtk_year=str(gg.get("mtkYear", mmlsource.DEFAULT_MTK_YEAR)),
+        kuntajako_year=str(gg.get("kuntajakoYear", mmlsource.DEFAULT_KUNTAJAKO_YEAR)),
+        quiet=quiet,
+    )
+    muni = mirror.find_municipality(cfg.get("kuntaCode") or cfg["name"])
+    tiles = mirror.fetch_tiles(muni.tiles(), refresh=refresh)
+    return MirrorSource(muni, mirror, tiles)
+
+
+# --------------------------------------------------------------------------
+# Loading
+# --------------------------------------------------------------------------
+def load_buildings(source) -> gpd.GeoDataFrame:
+    buildings = source.buildings()
+    if buildings.empty:
+        raise RuntimeError("no buildings found inside the municipality")
+    buildings = buildings[["geometry"]].reset_index(drop=True)
+    buildings["kp_id"] = [f"KP-{i + 1:05d}" for i in range(len(buildings))]
+    return buildings[["kp_id", "geometry"]]
+
+
+def seed_substations(source, cfg: dict, buildings: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Place primary substations, preferring real MML electrical points.
+
+    Substations sit at the municipality's main population centres (k-means over
+    building locations). Each centre snaps to the nearest real electrical point
+    when MML maps one, otherwise to the nearest building — so the generator also
+    works for municipalities MML records no electrical points for.
+    """
+    seeds: Sequence[dict] = cfg["gridgen"].get("substations") or []
+    count = int(cfg["gridgen"].get("substationCount", len(seeds) or 2))
+    count = max(1, min(count, len(buildings)))
+
+    coords = np.array([[g.x, g.y] for g in buildings.geometry])
+    if count == 1:
+        centres = coords.mean(axis=0, keepdims=True)
+        sizes = np.array([len(coords)])
+    else:
+        km = KMeans(n_clusters=count, n_init=4, random_state=11).fit(coords)
+        centres = km.cluster_centers_
+        sizes = np.bincount(km.labels_, minlength=count)
+    order = np.argsort(-sizes)  # largest population centre first
+
+    candidates = source.power_points()
+    cand_coords = (
+        np.array([[g.x, g.y] for g in candidates.geometry])
+        if not candidates.empty
+        else np.empty((0, 2))
+    )
+    used: set[int] = set()
+
     rows = []
-    for seed, g in zip(seeds, pts):
-        rows.append({"ss_id": seed["id"], "name": seed["name"], "geometry": g})
+    for rank, ci in enumerate(order):
+        centre = centres[ci]
+        point, real = None, False
+        if len(cand_coords):
+            for idx in np.argsort(np.linalg.norm(cand_coords - centre, axis=1)):
+                if int(idx) not in used:
+                    used.add(int(idx))
+                    point, real = Point(*cand_coords[idx]), True
+                    break
+        if point is None:
+            nearest = int(np.argmin(np.linalg.norm(coords - centre, axis=1)))
+            point = Point(*coords[nearest])
+        seed = seeds[rank] if rank < len(seeds) else {}
+        rows.append(
+            {
+                "ss_id": seed.get("id") or f"SS-{slugify(cfg['name']).upper()}-{rank + 1}",
+                "name": seed.get("name") or f"{cfg['name']} {rank + 1}",
+                "from_mml_point": real,
+                "geometry": point,
+            }
+        )
     return gpd.GeoDataFrame(rows, crs=TM35FIN)
 
 
@@ -97,12 +244,19 @@ def load_substations(mml_dir: Path, boundary, cfg: dict) -> gpd.GeoDataFrame:
 def cluster_transformers(
     buildings: gpd.GeoDataFrame, cfg: dict
 ) -> Tuple[gpd.GeoDataFrame, np.ndarray]:
+    """Cluster käyttöpaikat into distribution-transformer areas.
+
+    The count scales with the municipality (`buildingsPerTransformer`); the
+    optional `transformerCount` min/max clamps it when a specific grid size is
+    wanted, as the Sysmä demo config does.
+    """
     coords = np.array([[g.x, g.y] for g in buildings.geometry])
-    target = round(len(buildings) / 20)
-    lo, hi = cfg["gridgen"]["transformerCount"]["min"], cfg["gridgen"][
-        "transformerCount"
-    ]["max"]
-    k = int(min(max(target, lo), hi))
+    per = int(cfg["gridgen"].get("buildingsPerTransformer", BUILDINGS_PER_TRANSFORMER))
+    target = max(1, round(len(buildings) / max(1, per)))
+    span = cfg["gridgen"].get("transformerCount") or {}
+    k = max(target, int(span["min"])) if "min" in span else target
+    k = min(k, int(span["max"])) if "max" in span else k
+    k = int(max(1, min(k, len(buildings))))
     km = KMeans(n_clusters=k, n_init=4, random_state=42).fit(coords)
     labels = km.labels_
     rows = []
@@ -122,18 +276,20 @@ def cluster_transformers(
 # --------------------------------------------------------------------------
 # Road graph
 # --------------------------------------------------------------------------
-def build_road_graph(mml_dir: Path, boundary) -> Tuple[nx.Graph, dict]:
-    tv = gpd.read_file(mml_dir / "M44_TieViiva.shp", bbox=boundary.bounds)
+def build_road_graph(roads: gpd.GeoDataFrame) -> Tuple[nx.Graph, dict]:
+    """Turn MML road centrelines into a routable, connected graph."""
     g = nx.Graph()
     edge_coords: Dict[Tuple[str, str], List[Tuple[float, float]]] = {}
 
     def node_id(x: float, y: float) -> str:
         return f"{round(x)}_{round(y)}"
 
-    for geom in tv.geometry:
+    for geom in roads.geometry:
+        if geom is None or geom.is_empty:
+            continue
         lines = geom.geoms if geom.geom_type == "MultiLineString" else [geom]
         for line in lines:
-            cs = list(line.coords)
+            cs = [(c[0], c[1]) for c in line.coords]
             for a, b in zip(cs[:-1], cs[1:]):
                 ua, ub = node_id(*a), node_id(*b)
                 if ua == ub:
@@ -149,10 +305,12 @@ def build_road_graph(mml_dir: Path, boundary) -> Tuple[nx.Graph, dict]:
                 g.nodes[ua]["xy"] = a
                 g.nodes[ub]["xy"] = b
 
+    if g.number_of_nodes() == 0:
+        raise RuntimeError("no road geometry available for the municipality")
+
     # Keep only the largest connected component for reliable routing.
     largest = max(nx.connected_components(g), key=len)
-    g = g.subgraph(largest).copy()
-    return g, edge_coords
+    return g.subgraph(largest).copy(), edge_coords
 
 
 def make_snapper(graph: nx.Graph):
@@ -179,7 +337,8 @@ def assign_feeders(
     d = np.linalg.norm(tr_coords[:, None, :] - ss_coords[None, :, :], axis=2)
     tr["ss_id"] = [ss.iloc[i]["ss_id"] for i in d.argmin(axis=1)]
 
-    total_feeders = int(cfg["gridgen"]["feederCount"])
+    total_feeders = int(cfg["gridgen"].get("feederCount", DEFAULT_FEEDER_COUNT))
+    total_feeders = max(len(ss), min(total_feeders, len(tr)))
     feeder_ids: List[str] = [""] * len(tr)
     # allocate feeders per substation proportional to transformer count
     counts = tr["ss_id"].value_counts()
@@ -197,8 +356,9 @@ def assign_feeders(
 
     fseq = 0
     for sid in ss_order:
-        mask = (tr["ss_id"] == sid).values
-        idx = np.where(mask)[0]
+        idx = np.where((tr["ss_id"] == sid).values)[0]
+        if len(idx) == 0:
+            continue
         nf = alloc[sid]
         sub_coords = tr_coords[idx]
         if nf == 1 or len(idx) <= nf:
@@ -350,26 +510,26 @@ def write_outputs(
     seg_gdf: gpd.GeoDataFrame,
     closure: dict,
     tr_node_global: Dict[str, str],
+    output_dir: Path,
+    provenance: str,
 ) -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     def dump(gdf: gpd.GeoDataFrame, name: str):
         # gdf is in TM35FIN (projected); compute label points there, then
         # reproject for the GeoJSON output and lon/lat columns.
         g4326 = gdf.to_crs(WGS84)
-        g4326.to_file(OUTPUT_DIR / f"{name}.geojson", driver="GeoJSON")
+        g4326.to_file(output_dir / f"{name}.geojson", driver="GeoJSON")
         out = pd.DataFrame(g4326.drop(columns="geometry"))
         if gdf.geom_type.iloc[0] == "Point":
             out["lon"] = g4326.geometry.x
             out["lat"] = g4326.geometry.y
         else:
-            cent = gpd.GeoSeries(gdf.geometry.centroid, crs=TM35FIN).to_crs(
-                WGS84
-            )
+            cent = gpd.GeoSeries(gdf.geometry.centroid, crs=TM35FIN).to_crs(WGS84)
             out["lon"] = cent.x.values
             out["lat"] = cent.y.values
             out["geom_wkt"] = g4326.geometry.to_wkt().values
-        out.to_parquet(OUTPUT_DIR / f"{name}.parquet", index=False)
+        out.to_parquet(output_dir / f"{name}.parquet", index=False)
 
     dump(ss, "substations")
     dump(tr, "transformers")
@@ -377,7 +537,7 @@ def write_outputs(
     dump(seg_gdf, "feeders")
 
     topo = {
-        "generatedFrom": "MML Maastotietokanta (M44), EPSG:3067",
+        "generatedFrom": provenance,
         "counts": {
             "substations": len(ss),
             "transformers": len(tr),
@@ -394,34 +554,46 @@ def write_outputs(
             for sid, c in closure.items()
         },
     }
-    (OUTPUT_DIR / "topology.json").write_text(
+    (output_dir / "topology.json").write_text(
         json.dumps(topo, ensure_ascii=False), encoding="utf-8"
     )
 
 
 # --------------------------------------------------------------------------
-# Main
+# Build
 # --------------------------------------------------------------------------
-def main() -> None:
-    cfg = load_config()
-    mml_dir = REPO_ROOT / cfg["gridgen"]["mmlDataDir"]
-    print(f"[gridgen] MML dir: {mml_dir}")
+def build(
+    cfg: dict,
+    *,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    cache_dir: Path | None = None,
+    refresh: bool = False,
+    quiet: bool = False,
+) -> dict:
+    """Run the full generator and write the output set. Returns a summary."""
+    output_dir = Path(output_dir)
+    source = make_source(cfg, cache_dir=cache_dir, refresh=refresh, quiet=quiet)
+    print(f"[gridgen] source: {source.label}")
 
-    boundary = load_sysma_boundary(mml_dir)
-    print(f"[gridgen] Sysmä boundary loaded ({boundary.area / 1e6:.0f} km²)")
+    boundary = source.boundary()
+    print(f"[gridgen] {cfg['name']} boundary loaded ({boundary.area / 1e6:.0f} km²)")
 
-    buildings = load_buildings(mml_dir, boundary)
+    buildings = load_buildings(source)
     print(f"[gridgen] käyttöpaikat (buildings): {len(buildings)}")
 
-    ss = load_substations(mml_dir, boundary, cfg)
-    print(f"[gridgen] substations: {list(ss['ss_id'])}")
+    ss = seed_substations(source, cfg, buildings)
+    real = int(ss["from_mml_point"].sum())
+    print(
+        f"[gridgen] substations: {list(ss['ss_id'])} "
+        f"({real}/{len(ss)} on real MML electrical points)"
+    )
 
     tr, labels = cluster_transformers(buildings, cfg)
     print(f"[gridgen] transformers: {len(tr)}")
 
     # building -> transformer
     buildings = buildings.reset_index(drop=True)
-    buildings["tr_id"] = [tr.iloc[int(l)]["tr_id"] for l in labels]
+    buildings["tr_id"] = [tr.iloc[int(lbl)]["tr_id"] for lbl in labels]
 
     tr = assign_feeders(tr, ss, cfg)
     print(
@@ -429,7 +601,7 @@ def main() -> None:
         f"({tr['feeder_id'].nunique()} total)"
     )
 
-    graph, edge_coords = build_road_graph(mml_dir, boundary)
+    graph, edge_coords = build_road_graph(source.roads())
     print(
         f"[gridgen] road graph: {graph.number_of_nodes()} nodes, "
         f"{graph.number_of_edges()} edges"
@@ -442,9 +614,7 @@ def main() -> None:
     for fid in sorted(tr["feeder_id"].unique()):
         f_tr = tr[tr["feeder_id"] == fid]
         sid = f_tr.iloc[0]["ss_id"]
-        segs, tr_node = route_feeder(
-            graph, edge_coords, snap, ss_by_id[sid], f_tr, fid
-        )
+        segs, tr_node = route_feeder(graph, edge_coords, snap, ss_by_id[sid], f_tr, fid)
         # Namespace node ids per feeder so the global network is a forest of
         # disjoint radial trees (feeders may share raw road nodes).
         for s in segs:
@@ -467,6 +637,7 @@ def main() -> None:
     closure = net.closure()
 
     # attach closure counts + geometry to segment gdf
+    ss_by_feeder = tr.groupby("feeder_id")["ss_id"].first().to_dict()
     seg_rows = []
     for s in all_segments:
         c = closure[s["seg_id"]]
@@ -474,7 +645,7 @@ def main() -> None:
             {
                 "seg_id": s["seg_id"],
                 "feeder_id": s["feeder_id"],
-                "ss_id": tr[tr["feeder_id"] == s["feeder_id"]].iloc[0]["ss_id"],
+                "ss_id": ss_by_feeder[s["feeder_id"]],
                 "parent_seg_id": s["parent_seg_id"],
                 "from_node": s["from_node"],
                 "to_node": s["to_node"],
@@ -487,7 +658,9 @@ def main() -> None:
         )
     seg_gdf = gpd.GeoDataFrame(seg_rows, crs=TM35FIN)
 
-    write_outputs(ss, tr, buildings, seg_gdf, closure, tr_node_global)
+    write_outputs(
+        ss, tr, buildings, seg_gdf, closure, tr_node_global, output_dir, source.label
+    )
 
     # Summary
     root_segs = seg_gdf[seg_gdf["parent_seg_id"].isna()]
@@ -499,6 +672,7 @@ def main() -> None:
         .sort_values(ascending=False)
     )
     print("\n[gridgen] === SUMMARY ===")
+    print(f"  municipality    : {cfg['name']} ({cfg.get('kuntaCode', '?')})")
     print(f"  substations     : {len(ss)}")
     print(f"  feeders         : {tr['feeder_id'].nunique()}")
     print(f"  transformers    : {len(tr)}")
@@ -510,7 +684,24 @@ def main() -> None:
         f"  biggest segment : {biggest['seg_id']} feeds "
         f"{int(biggest['downstream_kp'])} käyttöpaikkaa"
     )
-    print(f"  outputs written to: {OUTPUT_DIR}")
+    print(f"  outputs written to: {output_dir}")
+
+    return {
+        "municipality": cfg["name"],
+        "substations": len(ss),
+        "feeders": int(tr["feeder_id"].nunique()),
+        "transformers": len(tr),
+        "kayttopaikat": len(buildings),
+        "segments": len(seg_gdf),
+        "biggest_segment": str(biggest["seg_id"]),
+        "biggest_segment_kp": int(biggest["downstream_kp"]),
+        "output_dir": str(output_dir),
+    }
+
+
+def main() -> None:
+    """Backwards-compatible entry point: build the configured municipality."""
+    build(load_config())
 
 
 if __name__ == "__main__":

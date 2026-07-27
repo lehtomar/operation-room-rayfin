@@ -6,7 +6,7 @@ graph to compute shortest-path polylines between every relevant origin/dest for
 a scenario, and writes them to tools/gridgen/output/routes.json for the frontend
 SimDriver to follow.
 
-Run:  MUNICIPALITY=sysma python tools/gridgen/routegen.py [--scenario mauri-2026]
+Run:  python tools/gridgen/routegen.py [--municipality sysma] [--scenario mauri-2026]
 """
 
 from __future__ import annotations
@@ -22,10 +22,12 @@ from shapely.geometry import Point
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
-sys.path.insert(0, str(HERE))
-import gridgen  # noqa: E402  (reuse road-graph helpers)
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-OUTPUT = HERE / "output" / "routes.json"
+from tools.gridgen import gridgen  # noqa: E402  (reuse road-graph helpers)
+
+DEFAULT_OUTPUT = HERE / "output" / "routes.json"
 TO_TM = Transformer.from_crs("EPSG:4326", "EPSG:3067", always_xy=True)
 TO_WGS = Transformer.from_crs("EPSG:3067", "EPSG:4326", always_xy=True)
 
@@ -54,12 +56,14 @@ def length_km(coords_tm):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenario", default="mauri-2026")
+    ap.add_argument("--municipality", help="municipality config id (default: $MUNICIPALITY or sysma)")
+    ap.add_argument("--out", help=f"output path (default: {DEFAULT_OUTPUT})")
     args = ap.parse_args()
 
-    cfg = gridgen.load_config()
-    mml_dir = REPO_ROOT / cfg["gridgen"]["mmlDataDir"]
-    boundary = gridgen.load_sysma_boundary(mml_dir)
-    graph, edge_coords = gridgen.build_road_graph(mml_dir, boundary)
+    output = Path(args.out) if args.out else DEFAULT_OUTPUT
+    cfg = gridgen.load_config(args.municipality)
+    source = gridgen.make_source(cfg)
+    graph, edge_coords = gridgen.build_road_graph(source.roads())
     snap = gridgen.make_snapper(graph)
     print(f"[routegen] road graph: {graph.number_of_nodes()} nodes")
 
@@ -116,8 +120,9 @@ def main():
             line.append([round(d_lon, 6), round(d_lat, 6)])
             routes[f"{oid}->{did}"] = {"coords": line, "km": round(km, 3)}
 
-    OUTPUT.write_text(json.dumps(routes, ensure_ascii=False), encoding="utf-8")
-    print(f"[routegen] wrote {len(routes)} routes -> {OUTPUT}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(routes, ensure_ascii=False), encoding="utf-8")
+    print(f"[routegen] wrote {len(routes)} routes -> {output}")
 
 
 if __name__ == "__main__":

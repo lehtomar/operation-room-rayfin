@@ -10,9 +10,13 @@
     "bboxTM35FIN": [416789, 6810000, 456234, 6843507]
   },
   "gridgen": {
+    "source": "mirror",
+    "mtkYear": "2025",
+    "kuntajakoYear": "2025",
     "transformerCount": { "min": 120, "max": 180 },
     "feederCount": 6,
     "kayttopaikatTarget": 2900,
+    "substationCount": 2,
     "substations": [
       { "id": "SS-SYSMA", "name": "Sysmä", "seedPlaceName": "Sysmä" },
       { "id": "SS-NUORAMOINEN", "name": "Nuoramoinen", "seedPlaceName": "Nuoramoinen" }

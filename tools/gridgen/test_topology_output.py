@@ -1,14 +1,18 @@
-"""End-to-end topology verification on the *generated* Sysmä grid.
+"""End-to-end topology verification on the *generated* grid.
 
 Complements the pure-unit tests in ``shared/topology/test_network.py`` by
 rebuilding the RadialNetwork from gridgen's real output and asserting the
 downstream closure is internally consistent (fault segment -> expected
 transformer/käyttöpaikka sets). Skips automatically if gridgen hasn't been run.
+
+Point ``GRIDGEN_OUTPUT`` at another directory to verify a grid generated for a
+different municipality (``python -m tools.gridgen build -m <name> --out <dir>``).
 """
 
 from __future__ import annotations
 
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -16,11 +20,13 @@ import pytest
 
 from shared.topology import RadialNetwork, Segment
 
-OUTPUT = Path(__file__).resolve().parent / "output"
+OUTPUT = Path(
+    os.environ.get("GRIDGEN_OUTPUT", Path(__file__).resolve().parent / "output")
+)
 
 pytestmark = pytest.mark.skipif(
     not (OUTPUT / "topology.json").exists(),
-    reason="gridgen output not present; run `python tools/gridgen/gridgen.py`",
+    reason=f"no gridgen output at {OUTPUT}; run `python -m tools.gridgen build -m <name>`",
 )
 
 
@@ -80,8 +86,13 @@ def test_feeder_root_fault_de_energizes_whole_feeder():
         )
         kp_total_by_feeder[r.feeder_id] = affected.customers_out
 
-    # At least one feeder must be a "large" trip (600+ customers) for the demo.
-    assert max(kp_total_by_feeder.values()) >= 600
+    total_kp = topo["counts"]["kayttopaikat"]
+    biggest = max(kp_total_by_feeder.values())
+    # A feeder trip must be a materially large event, whatever the municipality.
+    assert biggest >= 0.10 * total_kp
+    if total_kp >= 3000:
+        # Demo-sized grid: at least one feeder is a 600+ customer trip.
+        assert biggest >= 600
 
     # Feeders are electrically disjoint: root downstream sets must not overlap.
     seen: set[str] = set()
