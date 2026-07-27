@@ -190,6 +190,46 @@ with the real centre point and bbox filled in.
 python tools/gridgen/routegen.py --municipality sysma --scenario mauri-2026
 ```
 
+## Reusing this outside Finland
+
+`gridgen` is built on Maastotietokanta, so it is Finland-only as written. The
+pattern — *a national topographic database that carries power-network features
+under one open licence* — transfers to roughly 8–10 other countries, but the
+source class differs by region and several are legally or practically blocked.
+
+Two reference files capture that survey:
+
+| File | What it is |
+|---|---|
+| [`grid-data-sources.md`](./grid-data-sources.md) | Prose assessment: per-country datasets, licences, access methods, feature classes, known gaps and a verification checklist. |
+| [`sources.yaml`](./sources.yaml) | The same registry, machine-readable — endpoints, formats, CRS, licence tier and native feature-class names per country. |
+
+Headline findings:
+
+| Region | Verdict | Primary source class |
+|---|---|---|
+| **EU / EEA** | ~10 countries are drop-in replacements | National topographic DB |
+| **United Kingdom** | The topographic DB is the *weaker* source; distribution network operator open data is richer than Maastotietokanta | DNO open-data portals |
+| **Canada** | Closest true analogue to Finland | CanVec (NRCan) |
+| **United States** | No suitable open national source is available | — |
+
+Three things drive any implementation:
+
+- **Only the Netherlands serves native GeoJSON.** Everything else needs
+  conversion from GeoPackage, Shapefile, GML, SOSI or Esri FGDB.
+- **Thirteen distinct native CRSs** across the viable countries. Keep
+  reprojection config-driven, as this repo already does — the target CRS is a
+  config value, not a constant.
+- **OpenStreetMap is the only uniform pan-regional fallback, and its ODbL
+  share-alike licence forces a data-architecture decision** that is far easier
+  to make before ingest than to retrofit afterwards. `sources.yaml` encodes this
+  as a `licence.tier` per source and two layers (`permissive`, `osm_derived`)
+  that must not be merged.
+
+> Both files are research notes, not a specification. Entries marked ⚠️ were not
+> verified against a live service, and the licence summaries are a reading of
+> published terms rather than legal advice.
+
 ## Tests
 
 ```bash

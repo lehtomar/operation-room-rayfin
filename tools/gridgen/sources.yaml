@@ -1,0 +1,840 @@
+# =============================================================================
+# Grid data source registry
+# =============================================================================
+# Machine-readable index of national topographic and network-operator sources
+# that could feed the gridgen pipeline outside Finland.
+#
+# Companion document: grid-data-sources.md
+# Compiled: 2026-07-27
+#
+# Research notes, not a specification. Entries marked `status: verify` were not
+# confirmed against a live service. Licence fields summarise published terms and
+# are not legal advice — read the actual licence for your intended use.
+#
+# -----------------------------------------------------------------------------
+# SCHEMA
+# -----------------------------------------------------------------------------
+# status            ready    — content and licence confirmed
+#                   verify   — content or licence unconfirmed; see `blockers`
+#                   blocked  — known licence or access barrier
+#
+# licence.tier      permissive   — CC BY / CC0 / OGL / Etalab. Free to combine.
+#                   share_alike  — ODbL. Must be kept in an isolated layer.
+#                   restricted   — gated, or terms that narrow permitted use.
+#
+#                   `tier` drives the Collective Database separation described
+#                   in grid-data-sources.md, section "ODbL and data
+#                   architecture". A loader must refuse to write share_alike
+#                   features into a permissive layer.
+#
+# features.*        Native source class names, verbatim. `null` means the class
+#                   list is UNVERIFIED — resolve it rather than guessing.
+#                   Mapped to the canonical model below.
+#
+# CANONICAL TARGET MODEL (aligned to INSPIRE Utility Networks where practical)
+#   line            conductor centreline              LineString
+#   tower           HV pylon                          Point
+#   pole            distribution pole                 Point
+#   substation      substation / transformer station  Point | Polygon
+#   plant           generation site                   Point | Polygon
+# =============================================================================
+
+version: 1
+
+defaults:
+  target_crs: "EPSG:4326"
+  target_format: geojson
+  # Attribution is unconditional for any share_alike source.
+  attribution_required: true
+
+# =============================================================================
+# LAYER SEPARATION — enforces the ODbL Collective Database boundary
+# =============================================================================
+layers:
+  permissive:
+    description: >-
+      Openly licensed source data and anything derived from it. Never merge
+      share_alike features in; never persist a joined geometry here.
+    accepts_tiers: [permissive]
+
+  osm_derived:
+    description: >-
+      ODbL-encumbered content, including anything INFERRED from OSM (voltage
+      estimation, topology reconstruction). Physically separate tables, full
+      provenance tagging, isolated at rest.
+    accepts_tiers: [share_alike]
+    attribution: "© OpenStreetMap contributors, ODbL"
+
+# =============================================================================
+# EU / EEA — national topographic databases
+# =============================================================================
+countries:
+
+  # ----------------------------------------------------------------- GROUP 1 --
+  NL:
+    name: Netherlands
+    status: ready
+    group: 1
+    dataset: TOP10NL
+    agency: Kadaster / PDOK
+    access:
+      type: ogc_api_features
+      endpoint: "https://api.pdok.nl/kadaster/brt-top10nl/ogc/v1/"
+      auth: none
+    formats: [geojson, json-fg, gpkg, gml]
+    native_geojson: true          # only source in the registry — skip conversion
+    crs: "EPSG:28992"
+    licence:
+      name: CC BY 4.0
+      tier: permissive
+    update_cadence: "5 releases/year (Feb, Apr, Jun, Sep, Nov)"
+    features:
+      line: [hoogspanningsleiding]
+      tower: [hoogspanningsmast]
+      substation: [transformatorstation]
+      plant: [elektriciteitscentrale, kerncentrale]
+
+  FR:
+    name: France
+    status: ready
+    group: 1
+    dataset: BD TOPO v3
+    agency: IGN / Géoplateforme
+    access:
+      type: [bulk, wfs]
+      endpoint: "https://data.geopf.fr"
+      auth: none
+    formats: [shp, gpkg]
+    geometry_3d: true
+    crs: "EPSG:2154"              # mainland; overseas départements use per-territory UTM
+    licence:
+      name: Licence Ouverte / Etalab 2.0
+      tier: permissive
+    update_cadence: quarterly
+    features:
+      line: [LIGNE_ELECTRIQUE]
+      tower: [PYLONE]
+      substation: [POSTE_DE_TRANSFORMATION]
+    notes: >-
+      RTE withdrew precise pylon coordinates in 2024 on public-security
+      grounds. BD TOPO PYLONE remains the open pylon source.
+
+  CZ:
+    name: Czechia
+    status: verify
+    group: 1
+    dataset: ZABAGED
+    agency: ČÚZK
+    access:
+      type: [bulk, wfs, atom]
+      endpoint: "https://geoportal.cuzk.gov.cz"
+      auth: none
+    formats: [shp, dgn, gml]
+    crs: "EPSG:5514"
+    licence:
+      name: ČÚZK open data
+      tier: permissive
+      verified: false             # licence text not read
+    features:
+      line: ["ELEKTRICKÉ VEDENÍ"]
+      tower: ["STOŽÁR ELEKTRICKÉHO VEDENÍ"]
+      substation: ["ROZVODNA, TRANSFORMOVNA"]
+      plant: ["ELEKTRÁRNA"]
+    blockers:
+      - "Confirm open-data licence text before use"
+    notes: >-
+      Catalogue category 3 'Rozvodné sítě a produktovody', current to
+      2026-01-01. Above-ground parts only.
+
+  DK:
+    name: Denmark
+    status: ready
+    group: 1
+    dataset: GeoDanmark
+    agency: Klimadatastyrelsen / Datafordeler
+    access:
+      type: [wfs, bulk, change_feed]
+      endpoint: "https://datafordeler.dk"
+      auth: account               # free registration + service-user credentials
+      change_feed: "GeoDanmark Vektor Hændelser"
+    formats: [gml, shp, tab]
+    geometry_3d: true
+    crs: "EPSG:25832"
+    licence:
+      name: Danish public basic data
+      tier: permissive
+    features:
+      line: ["Højspændingsledning"]
+      tower: [Mast]
+    notes: >-
+      Only source with a clean incremental-update mechanism. Prefer the
+      change feed over a full re-ingest.
+
+  # ----------------------------------------------------------------- GROUP 2 --
+  DE:
+    name: Germany
+    status: verify
+    group: 2
+    dataset: ATKIS Basis-DLM
+    agency: AdV / Landesvermessungsverwaltungen
+    access:
+      type: bulk
+      endpoint: "https://basemap.de/open-data/"
+      auth: none
+      note: "One GeoPackage per Bundesland — avoids 16 separate portals"
+    formats: [gpkg, nas, shp]
+    crs: "EPSG:4326"              # basemap.de reprojects; raw ATKIS is 25832/25833
+    licence:
+      name: DL-DE/Zero-2.0 or DL-DE/BY-2.0
+      tier: permissive
+    update_cadence: weekly
+    features:
+      line: [AX_Leitung]          # UNVERIFIED: BWF value codes not confirmed
+      tower: [AX_Turm]
+      substation: null
+    blockers:
+      - "Confirm power features survive the basemap.de model transformation"
+      - "Verify AX_Leitung BWF/Bauwerksfunktion codes for Freileitung"
+    fallback:
+      description: "Per-state raw Basis-DLM if basemap.de drops power features"
+      example: "https://opengeodata.nrw.de"
+    notes: >-
+      BKG's nationwide Basis-DLM (Ebenen / kompakt) is a paid product needing a
+      signed licence agreement; its free DLM250/DLM1000 are too coarse.
+
+  PL:
+    name: Poland
+    status: ready
+    group: 2
+    dataset: BDOT10k
+    agency: GUGiK
+    access:
+      type: bulk
+      endpoint: "https://opendata.geoportal.gov.pl"
+      auth: none
+      granularity: powiat
+    formats: [gml]                # GML 3.2 only
+    crs: "EPSG:2180"
+    licence:
+      name: GUGiK open data
+      tier: permissive
+    features:
+      line:
+        SULN01: EHV               # najwyższego napięcia — 220/400 kV
+        SULN02: HV                # wysokiego napięcia — 110 kV
+        SULN03: MV                # średniego napięcia
+        SULN04: LV                # niskiego napięcia
+      substation: ["podstacja elektroenergetyczna"]
+    notes: >-
+      Four-level voltage classification is richer than Finland's.
+      GML-only parsing is the main integration cost.
+
+  # ----------------------------------------------------------------- GROUP 3 --
+  ES:
+    name: Spain
+    status: verify
+    group: 3
+    dataset: BTN
+    agency: IGN / CNIG
+    access:
+      type: [bulk, atom, wmts]
+      endpoint: "https://centrodedescargas.cnig.es/CentroDescargas/btn"
+      auth: none
+    formats: [gpkg, shp, dwg]
+    crs: ["ETRS89 UTM", "REGCAN95 UTM"]   # dual datum — Canaries differ
+    licence:
+      name: Orden FOM/2807/2015 (CC BY 4.0 compatible)
+      tier: permissive
+      attribution: "BTN CC-BY 4.0 scne.es"
+    features:
+      theme: Energia               # theme confirmed; classes NOT enumerated
+      line: null
+      tower: null
+      substation: null
+    blockers:
+      - "Enumerate 'Energia' theme feature classes — spec ESPBTN.pdf from p.15"
+
+  SE:
+    name: Sweden
+    status: verify
+    group: 3
+    dataset: Topografi 10
+    agency: Lantmäteriet
+    access:
+      type: api
+      endpoint: "https://geotorget.lantmateriet.se"
+      auth: account               # per-product entitlement
+    formats: [shp, gpkg]
+    crs: "EPSG:3006"
+    licence:
+      name: CC0
+      tier: permissive
+      verified: false
+    update_cadence: "12/year"
+    features:
+      line: ["Kraftledning stam", "Kraftledning region"]
+      substation: ["Transformatorområde"]
+      tower: null                 # no pylon point class found
+    blockers:
+      - "Confirm Topografi 10 is on Lantmäteriet's CC0 open-data list"
+
+  "NO":
+    name: Norway
+    status: ready
+    group: 3
+    dataset: N50 Kartdata
+    agency: Kartverket / Geonorge
+    access:
+      type: bulk
+      endpoint: "https://kartkatalog.geonorge.no"
+      auth: none
+    formats: [sosi, fgdb, gml, postgis]
+    crs: "EPSG:25833"
+    licence:
+      name: CC BY 4.0
+      tier: permissive
+    update_cadence: weekly
+    accuracy_m: [2, 50]           # 1:50k generalisation — may be too coarse
+    features:
+      line: ["Kraftlinje", "Kraftspenn"]
+      tower: [Mast, "Tårn"]
+    notes: >-
+      Detailed FKB (incl. FKB-Ledning) is NOT open — purchase via Geovekst.
+      NVE publishes Norwegian grid infrastructure openly as a complement.
+
+  AT:
+    name: Austria
+    status: ready
+    group: 3
+    dataset: BEV Digitales Landschaftsmodell (BAUTEN)
+    agency: BEV
+    access:
+      type: bulk                  # no API exists
+      endpoint: "https://data.bev.gv.at"
+      auth: none
+    formats: [gpkg, shp]
+    crs: "EPSG:31255"
+    licence:
+      name: CC BY 4.0
+      tier: permissive
+    update_cadence: "annual to 3-yearly"
+    accuracy_m: 3
+    features:
+      line: [Stromleitung]
+      tower: [Strommast]
+
+  BE:
+    name: Belgium
+    status: ready
+    group: 3
+    dataset: Top10Vector
+    agency: NGI / IGN
+    access:
+      type: [bulk, wms]
+      endpoint: "https://www.geo.be"
+      auth: none
+    formats: [gpkg, shp]
+    geometry_3d: true
+    crs: "EPSG:3812"
+    licence:
+      name: CC BY 4.0
+      tier: permissive
+    update_cadence: "6 years"     # non-road themes — power sits here
+    features:
+      theme: "High-voltage network"
+    notes: >-
+      NGI charges per file for custom reprojection or reformatting. Take the
+      standard Lambert 2008 GeoPackage and reproject in-pipeline.
+
+  EE:
+    name: Estonia
+    status: verify
+    group: 3
+    dataset: ETAK
+    agency: Maa- ja Ruumiamet
+    access:
+      type: [bulk, wms, wfs]
+      endpoint: "https://geoportaal.maaruum.ee"
+      auth: none
+    formats: [gpkg, shp, fgdb, tab, dgn, dwg]
+    crs: "EPSG:3301"
+    licence:
+      name: Estonian Open Data Licence
+      tier: permissive
+      attribution: "Map data by Republic of Estonia Land and Spatial Development Board"
+    update_cadence: weekly        # best cadence in the registry
+    features:
+      theme: "Tehnovõrgud"
+      line: null
+      tower: null
+    blockers:
+      - "Enumerate ETAK Tehnovõrgud classes — 2.8 MB national file suggests transmission-only"
+
+  # ---------------------------------------------------------------- BLOCKED --
+  IT:
+    name: Italy
+    status: blocked
+    dataset: DBSN
+    agency: IGM
+    access:
+      type: [bulk, wfs]
+      endpoint: "https://igmi.esercito.difesa.it/porta-magna/wfs/dbsn"
+      auth: none
+    formats: [fgdb]
+    crs: ["EPSG:25832", "EPSG:25833"]
+    licence:
+      name: ODbL 1.0
+      tier: share_alike
+    features:
+      line: null
+    blockers:
+      - "ODbL share-alike — belongs in the osm_derived layer if used at all"
+      - "Only 74 of 91 classes distributed; electricity inclusion unverified"
+    alternative: "Regional DBGT portals (Lombardia, Emilia-Romagna, Piemonte)"
+
+  IE:
+    name: Ireland
+    status: blocked
+    dataset: PRIME2
+    agency: Tailte Éireann
+    licence:
+      name: Commercial
+      tier: restricted
+    blockers:
+      - "PRIME2 is a commercial product; the open portal has boundaries only"
+      - "Re-use conditions restrict use for promoting a product or service"
+    alternative: "EirGrid transmission network + OSM"
+
+  # ------------------------------------------------------- LEADS (unscoped) --
+  _leads:
+    SK: { dataset: ZBGIS, agency: "ÚGKK SR", note: "Open; modelled like ZABAGED — strong candidate" }
+    SI: { dataset: "DTK / GJI", agency: GURS, note: "GJI register explicitly covers energy infrastructure" }
+    LT: { dataset: GDB10LT, note: "Open since ~2020; likely has 'elektros linija'" }
+    LV: { dataset: Topo50, agency: LGIA }
+    LU: { dataset: BD-L-TC, agency: ACT, note: "Small, open, CC BY — good testbed" }
+    HR: { dataset: "TTB / CROTIS", agency: DGU, note: "Partially open" }
+    IS: { dataset: IS 50V, note: "Fully open CC BY; has infrastructure layer" }
+    CH: { dataset: swissTLM3D, agency: swisstopo, crs: "EPSG:2056",
+          note: "Outside scope but excellent — TLM_LEITUNG lines + masts, 3D" }
+
+# =============================================================================
+# UNITED KINGDOM — operator portals, not the topographic DB
+# =============================================================================
+# Regulatory driver: Ofgem Data Best Practice Guidance v3.5 (2025-11-17) is a
+# LICENCE CONDITION. The sector operates on a 'presumed open' principle.
+# Expect several adapters, not one.
+# =============================================================================
+
+  GB:
+    name: United Kingdom
+    group: 2
+    crs: "EPSG:27700"
+
+    topographic:
+      OS_Open_Zoomstack:
+        status: ready
+        agency: Ordnance Survey
+        access:
+          type: [bulk, api]
+          endpoint: "https://osdatahub.os.uk"
+          auth: api_key           # OpenData Plan — free
+        formats: [gpkg, vector_tiles]
+        licence:
+          name: OS OpenData
+          tier: permissive
+        update_cadence: "2/year"
+        features:
+          line: [ETL]             # Electricity Transmission Lines
+        limitations:
+          - "Generalised cartographic basemap — no pylons, no voltage"
+
+      OS_MasterMap_Topography:
+        status: blocked
+        agency: Ordnance Survey
+        licence:
+          name: OS Premium / PSGA
+          tier: restricted
+        features:
+          tower: ["Pylon (individual features)"]
+        blockers:
+          - "Premium licence; PSGA access is granted to member organisations, not to products"
+
+      OS_NGD_Structures:
+        status: verify
+        agency: Ordnance Survey
+        access:
+          type: ogc_api_features
+          endpoint: "https://api.os.uk/features/ngd/ofa/v1"
+          auth: api_key
+        licence:
+          tier: restricted
+        blockers:
+          - "Documented scope omits pylons — verify Structure Point description code list"
+
+    operators:
+      UKPN:
+        status: verify
+        name: UK Power Networks
+        regions: [EPN, LPN, SPN]
+        access:
+          type: opendatasoft_v2.1
+          endpoint: "https://ukpowernetworks.opendatasoft.com"
+          auth: api_key           # env: UKPN_API_KEY
+          client: ukpyn           # official Python client
+        formats: [geojson, shp, csv, json]
+        native_geojson: true
+        provenance: "Extracted from NetMap — operator-authoritative asset data"
+        licence:
+          name: "UKPN Open Data Licence"
+          tier: permissive
+          verified: false
+        features:
+          line:
+            - hv_overhead_lines   # 11 kV
+            - lv_overhead_lines   # 400 V
+          pole:
+            - hv_poles
+            - lv_poles
+          substation:
+            - primary_substations
+            - secondary_sites
+        blockers:
+          - "BLOCKING: retrieve the exact licence instrument (CC BY 4.0? OGL? bespoke?)"
+
+      NGED:
+        status: ready
+        name: National Grid Electricity Distribution
+        access:
+          type: ckan
+          endpoint: "https://connecteddata.nationalgrid.co.uk"
+          auth: api_token         # required since 2024-06-01
+        formats: [shp, dwg, dgn, gpkg]
+        features:
+          line: ["11kV Overhead Lines", "132kV Overhead Lines"]
+          boundary: ["GSP", "BSP", "Primary supply areas"]
+        warning: "DISTINCT from National Grid Electricity Transmission (NGET) — do not conflate"
+
+      SPEN:
+        status: verify
+        name: SP Energy Networks
+        access:
+          type: opendatasoft
+          endpoint: "https://spenergynetworks.opendatasoft.com"
+        scope: [distribution, transmission]   # SPEN is also a TO in Scotland
+        licence:
+          name: "Open Data Licence + Shared Data Licence"
+          tier: permissive
+        blockers:
+          - "Confirm conductor line geometry (not just substation points)"
+
+      ENWL:
+        status: verify
+        name: Electricity North West
+        access:
+          type: opendatasoft
+          endpoint: "https://electricitynorthwest.opendatasoft.com"
+        blockers:
+          - "Confirm conductor line geometry is downloadable"
+
+      NPg:
+        status: verify
+        name: Northern Powergrid
+        access:
+          type: opendatasoft
+          endpoint: "https://northernpowergrid.opendatasoft.com"
+        features:
+          substation: [ltds_ehv_sites]    # updated May/Nov
+        blockers:
+          - "Confirm conductor line geometry is downloadable"
+
+      SSEN:
+        status: verify
+        name: Scottish and Southern Electricity Networks
+        regions: [SEPD, SHEPD]
+        access:
+          type: portal
+          endpoint: "https://data.ssen.co.uk"
+          auth: account
+        features:
+          substation: ["SSEN Substation Data"]
+        blockers:
+          - "Full network GIS is Electric Office — login-gated, ~2 working days approval"
+
+      NIE:
+        status: ready
+        name: NIE Networks
+        region: Northern Ireland
+        scope: [transmission, distribution]
+        access:
+          type: opendatasoft
+          endpoint: "https://nienetworks.opendatasoft.com"
+        licence:
+          name: OGL v3.0
+          tier: permissive
+        crs: "EPSG:2157"          # Irish Grid / ITM — NOT OS GB
+        notes: "Separate pipeline branch — OSNI, not OS"
+
+      NGET:
+        status: blocked
+        name: National Grid Electricity Transmission
+        access:
+          endpoint: "nationalgrid.com/electricity-transmission/network-and-infrastructure/network-route-maps"
+        formats: [shp]
+        features:
+          line: ["Over Head Line", "Cables"]
+          tower: [Towers]
+          substation: [Substation, Site]
+        licence:
+          tier: restricted
+        blockers:
+          - >-
+            LICENCE TRAP: 'can only be used for emergency and land use planning
+            and cannot be used for commercial purposes'. Check the terms against
+            your intended use before ingesting.
+
+    aggregation:
+      NESO_GSP:
+        status: ready
+        name: "GIS Boundaries for GB Grid Supply Points"
+        access:
+          type: ckan
+          endpoint: "https://api.neso.energy"
+        formats: [shp, geojson]
+        crs: "EPSG:27700"
+        licence:
+          name: NESO Open Data Licence
+          tier: permissive
+        scope: boundary_only      # Thiessen-derived regions, NOT network geometry
+        notes: "GSP IDs registered with Elexon — joins DNO data to settlement data"
+
+# =============================================================================
+# CANADA — closest true analogue to Finland
+# =============================================================================
+
+  CA:
+    name: Canada
+    status: verify
+    group: 1
+    dataset: "CanVec Series — Resources Management Features"
+    agency: Natural Resources Canada
+    access:
+      type: [ftp, wms, extract_tool]
+      endpoint: "ftp://ftp.maps.canada.ca/pub/nrcan_rncan/vector/canvec/fgdb/Res_MGT/"
+      wms: "https://maps.geogratis.gc.ca/wms/canvec_en"
+      extract_tool: "https://maps.canada.ca/czs/"
+      auth: none
+    formats: [fgdb, shp, kmz]
+    crs: "EPSG:4617"              # UNVERIFIED — assumed NAD83(CSRS)
+    licence:
+      name: Open Government Licence – Canada
+      tier: permissive
+    update_cadence: none          # record states 'Maintenance: Not Planned'
+    features:
+      line: ["power lines"]
+      substation: ["transformer stations"]
+    blockers:
+      - "Confirm CRS from the FGDB, not the catalogue record"
+    notes: >-
+      Treat as a stable baseline, not a live feed. Status 'Completed',
+      original publication 2019-03-01.
+
+    provinces:
+      BC:
+        status: ready
+        dataset: GBA_TRANSMISSION_LINES_SP
+        agency: GeoBC
+        access:
+          type: [bulk, wms, kml]
+          wms: "https://openmaps.gov.bc.ca/geo/pub/WHSE_BASEMAPPING.GBA_TRANSMISSION_LINES_SP/ows"
+        licence:
+          name: OGL – British Columbia
+          tier: permissive
+        limitations:
+          - "Voltage withheld per publication agreement with BC Hydro"
+
+      AB:
+        status: ready
+        dataset: Powerlines
+        agency: Alberta Environment and Protected Areas
+        access:
+          type: esri_rest
+          endpoint: "https://geospatial.alberta.ca/titan/rest/services/utility/access_utility/MapServer"
+        crs: "EPSG:3400"
+        licence:
+          name: OGL – Alberta
+          tier: permissive
+        scope: ">69 kV transmission corridors"
+        feature_count: 2387
+        limitations:
+          - "Distribution-level assets (poles, conductors) are not in the open dataset"
+
+      ON:
+        status: blocked
+        dataset: Utility Line
+        agency: Geospatial Ontario
+        access:
+          type: [esri_rest, bulk]
+          endpoint: "https://ws.gisetl.lrc.gov.on.ca/fmedatadownload/Packages/UTILLINE.zip"
+        licence:
+          name: "OGL – Ontario OR Custom"
+          tier: permissive
+          verified: false
+        blockers:
+          - "Data range 1977–2008; only 5,612 records province-wide"
+          - "Licence conflict: GeoHub 'Custom License' vs data.ontario.ca OGL"
+        notes: "Operational Ontario grid data sits with IESO and Hydro One — neither publishes open geometry"
+
+      QC:
+        status: verify
+        datasets:
+          - name: "Lignes de transport électrique"
+            agency: Ville de Montréal
+            status: ready
+            extent: municipal      # Montreal only
+            formats: [gpkg, shp]
+            crs: NAD83(CSRS)
+            accuracy_m: 0.4
+            licence: { name: CC BY 4.0, tier: permissive }
+            features:
+              tower: [CARTO-SER-ELECTRICITE]        # concrete pylon bases
+              line: [CARTO-SER-ELE-TEL-AERIEN]      # suspended cable
+        blockers:
+          - "Hydro-Québec: no open transmission geometry found — verify by direct crawl"
+
+# =============================================================================
+# UNITED STATES
+# =============================================================================
+
+  US:
+    name: United States
+    status: blocked
+    notes: "No suitable open national source is available."
+
+# =============================================================================
+# PAN-REGIONAL FALLBACK — OpenStreetMap
+# =============================================================================
+# MUST load into the osm_derived layer. See grid-data-sources.md, section
+# "ODbL and data architecture".
+# =============================================================================
+
+osm:
+  status: ready
+  licence:
+    name: ODbL 1.0
+    tier: share_alike
+    attribution: "© OpenStreetMap contributors"
+    architecture_rule: >-
+      Never write non-OSM attributes onto an OSM feature record. Never persist
+      merged OSM + non-OSM geometry into a distributed database. Join at render
+      time (Produced Work, §4.3) or keep co-located but unmerged (Collective
+      Database, §4.5a).
+  legal_review_required: true
+
+  crs: "EPSG:4326"
+
+  tags:
+    line: [power=line, power=minor_line, power=cable]
+    tower: [power=tower]
+    pole: [power=pole]
+    substation: [power=substation]
+    plant: [power=generator, power=plant]
+
+  attributes:
+    voltage: "volts; semicolon-separated for multi-circuit"
+    circuits: integer
+    cables: integer
+    frequency: "0 = HVDC, 16.7 = traction (filter out)"
+    operator: string
+    ref: "line designation"
+    location: "overhead | underground | underwater"
+
+  known_gaps:
+    untagged_voltage_pct: 15.1    # OpenInfraMap global
+    topology: "Lines terminate at towers, not substation busbars — infer incidence by spatial join"
+
+  coverage_ranking: [EU, GB, CA]   # best to worst
+
+  tooling:
+    bulk: geofabrik                # daily per-country .osm.pbf — correct ingest path
+    query: overpass                # dev/small AOI only, rate-limited
+    quality: [ohsome, osmose]      # completeness scoring + power-topic QA
+    processing: [osmium, osm2pgsql, pyrosm]
+    visual_check: "https://openinframap.org"
+
+  derived_datasets:
+    - name: PyPSA-Eur
+      status: recommended
+      content: "European transmission network with electrical parameters, OSM IDs preserved"
+      countries: 33               # sources gave 33 and 36 — verify
+      licence: { tier: share_alike }   # ODbL flows through despite CC BY on output
+    - name: PyPSA-Earth
+      status: recommended
+      scope: global
+      licence: { tier: share_alike }
+      notes: "Validate per country"
+    - name: "Xiong et al. arXiv:2408.17178"
+      status: reference
+      notes: "Cleaning heuristics — voltage inference, line-substation snapping, traction filtering"
+    - name: SciGRID
+      status: superseded
+    - name: GridKit
+      status: superseded
+    - name: gridfinder
+      status: rejected
+      reason: "Predicted, not observed geometry — not appropriate where real data exists"
+
+# =============================================================================
+# PERMISSIVE COMPANION SOURCES — safe for the permissive layer
+# =============================================================================
+
+companions:
+  WRI_Global_Power_Plant_Database:
+    status: ready
+    content: "~35,000 plants: capacity, fuel, ownership, geolocation"
+    licence: { name: CC BY 4.0, tier: permissive }
+
+  Global_Energy_Monitor:
+    status: ready
+    content: "Under-construction and planned assets"
+    licence: { name: CC BY 4.0, tier: permissive }
+    access: { auth: account }
+
+  ENTSO_E:
+    status: ready
+    scope: attributes_only        # NOT geometry
+    content: [bidding_zones, interconnector_capacity, flows, outages]
+    endpoint: "https://transparency.entsoe.eu"
+    access: { auth: account }
+    notes: >-
+      The Interactive Transmission System Map is a viewer only — no bulk
+      geometry download, no redistribution licence.
+
+# =============================================================================
+# RULED OUT
+# =============================================================================
+
+ruled_out:
+  INSPIRE:
+    theme: "Annex III — Utility and Governmental Services"
+    model: US.ElectricityNetwork_UtilityLink
+    reason: >-
+      Among the least-implemented themes. Many states publish metadata
+      satisfying discoverability audits with no features. Coverage
+      discontinuous at borders.
+    retain: "Adopt the Utility Networks data model as the internal canonical schema"
+    exception: LU                 # Luxembourg — verify still live
+
+  Copernicus:
+    reason: "Terrain and land cover only — no power network content"
+
+# =============================================================================
+# DISCOVERY
+# =============================================================================
+
+discovery:
+  awesome_electrical_grid_mapping:
+    type: catalogue
+    licence: "CC0 or CC BY — check repo LICENSE"
+    usage: >-
+      Per-country source-discovery checklist. Look here for a national open
+      source before defaulting to OSM-derived geometry.
