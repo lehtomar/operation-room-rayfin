@@ -12,7 +12,64 @@ simulated). Built as a **Rayfin** app on **Microsoft Fabric**.
 ![Control room](https://img.shields.io/badge/Fabric-Data%20App-38bdf8) ·
 Live (in Fabric portal): `https://close-fawn-c8c9977a06-swedencentral.webapp.fabricapps.net`
 
+**📹 Demo video (~2 min):** _TODO — add link before submitting._
+
 ---
+
+## The problem
+
+When a storm crosses a Finnish distribution grid, the dispatcher's operating
+picture fragments. Outage data sits in SCADA/DMS, crew locations in a workforce
+tool, the weather front in a browser tab, and customer impact in a spreadsheet —
+so the questions that actually decide the shift get answered slowly and by gut
+feel:
+
+- **Which fault hurts most?** A fault's real cost is not its location but
+  everything *downstream* of it — how many **käyttöpaikat** (customer connection
+  points) go dark, and for how long.
+- **Which crew should go, and when will power be back?** Travel time on real
+  roads, crew skills, and shift ends all matter.
+- **What is this outage costing?** Finnish DSOs owe statutory **vakiokorvaus**
+  compensation that escalates with outage duration, so restoring the right
+  feeder first is a direct euro decision.
+
+Every minute spent reconciling four screens is a minute of outage the regulator
+and the customer both bill for.
+
+## Who it's for
+
+**Primary user: the control-room dispatcher (käytönvalvoja) at a Finnish
+electricity DSO** — the person on shift who must keep situational awareness on a
+calm day and triage, prioritize and dispatch under storm load. Secondary users:
+the operations manager reviewing restoration performance and compensation
+exposure, and field crew leads receiving assignments.
+
+## What we built
+
+**Verkkovahti** — one screen that fuses grid state, customer impact, weather and
+field crews into a single operating picture, with dispatch as a first-class
+action:
+
+- A **geographically honest** synthetic Sysmä grid built from real national map
+  data (2,879 real building points → käyttöpaikat, 144 transformers, 2
+  substations, 6 feeders routed along the real road network) with a radial
+  parent/child topology.
+- **Impact-first triage**: click any fault and the whole **downstream** network
+  highlights; the incident queue is ranked by *käyttöpaikat × outage hours*, and
+  KPIs show live customers-without-power and **vakiokorvaus risk in €**.
+- **Dispatch you can actually do**: suggest-nearest-skilled-crew or drag an
+  incident card onto a crew row in the Gantt; crews then drive real road routes
+  to site, repair, and restore power, and the KPIs fall.
+- **Two presenter modes**: a **Live** blue-sky shift (live FMI wind + live rain
+  radar, scheduled maintenance, small unscheduled outages) and a **Storm replay**
+  of *Myrsky Mauri* — ~4 h of storm compressed into a ~10 min demo, with the rain
+  radar synced to the simulated clock.
+- Deployed as a **Rayfin data app on Microsoft Fabric**: code-first `@entity`
+  data model → Fabric SQL Database via DAB, authenticated GraphQL read/write,
+  and Vite static hosting — all from `rayfin up`.
+
+An earlier concept pitch for the same idea (before the Sysmä build) lives in
+[`docs/concept/`](./docs/concept/) as a PNG, a PDF and a standalone HTML page.
 
 ## Architecture
 
@@ -94,6 +151,10 @@ The top bar switches between two views:
 
 ## 10-step demo script
 
+> For the full presenter guide — including the **normal operations** ("blue-sky
+> day") walkthrough and the transition into the storm — see
+> [`docs/DEMO.md`](./docs/DEMO.md).
+
 Two ways to run it. **A) Local** (fastest, reset button enabled).
 **B) Fabric portal** (the real target; Fabric SSO).
 
@@ -132,8 +193,8 @@ switch (**Map / Dark / Satellite**). No local process is required.
 
 ```bash
 python -m pytest shared/topology tools/gridgen -q   # topology + gridgen output (9)
-npm test                                            # ETA/compensation/topology (8)
-npm run build                                        # TypeScript strict + vite
+npm test                                            # ETA/compensation/topology (15)
+npm run build                                       # TypeScript strict + vite
 ```
 
 ## Reusability
