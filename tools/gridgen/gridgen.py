@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 from shapely.geometry import LineString, Point
-from sklearn.cluster import KMeans
+from sklearn.cluster import DBSCAN, KMeans
 
 # Make `shared.topology` and `tools.gridgen.*` importable when run as a script.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -58,6 +58,10 @@ DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 BUILDINGS_PER_TRANSFORMER = 20
 DEFAULT_FEEDER_COUNT = 6
+#: MML maps one substation as several features metres apart; merge within this.
+SITE_MERGE_RADIUS_M = 500.0
+#: Never drag a substation further than this to reach a real electrical site.
+STATION_SNAP_MAX_M = 5_000.0
 
 
 # --------------------------------------------------------------------------
@@ -183,56 +187,87 @@ def load_buildings(source) -> gpd.GeoDataFrame:
     return buildings[["kp_id", "geometry"]]
 
 
-def seed_substations(source, cfg: dict, buildings: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Place primary substations, preferring real MML electrical points.
+def merge_station_sites(coords: np.ndarray, radius_m: float = SITE_MERGE_RADIUS_M) -> np.ndarray:
+    """Collapse co-located electrical features into one point per site.
 
-    Substations sit at the municipality's main population centres (k-means over
-    building locations). Each centre snaps to the nearest real electrical point
-    when MML maps one, otherwise to the nearest building — so the generator also
-    works for municipalities MML records no electrical points for.
+    MML maps a substation as several short outlines (busbars, buildings), so a
+    single physical site shows up as a handful of features a few metres apart.
+    Treating those as distinct candidates lets one site consume several
+    substation slots, which is how Nuoramoinen once ended up in Sysmä centre.
+    """
+    if len(coords) == 0:
+        return coords
+    labels = DBSCAN(eps=radius_m, min_samples=1).fit_predict(coords)
+    return np.array([coords[labels == lbl].mean(axis=0) for lbl in sorted(set(labels))])
+
+
+def seed_substations(source, cfg: dict, buildings: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Place primary substations, preferring the real MML electrical sites.
+
+    Real sites win when MML maps enough of them: every building is assigned to
+    its nearest site and the busiest sites are kept, so the generated grid sits
+    on the municipality's actual substations. Any remaining slots fall back to
+    population centres (k-means over buildings), snapping to a nearby unused
+    real site when there is one — so municipalities MML records no electrical
+    data for still work.
     """
     seeds: Sequence[dict] = cfg["gridgen"].get("substations") or []
     count = int(cfg["gridgen"].get("substationCount", len(seeds) or 2))
     count = max(1, min(count, len(buildings)))
 
     coords = np.array([[g.x, g.y] for g in buildings.geometry])
-    if count == 1:
-        centres = coords.mean(axis=0, keepdims=True)
-        sizes = np.array([len(coords)])
-    else:
-        km = KMeans(n_clusters=count, n_init=4, random_state=11).fit(coords)
-        centres = km.cluster_centers_
-        sizes = np.bincount(km.labels_, minlength=count)
-    order = np.argsort(-sizes)  # largest population centre first
-
     candidates = source.power_points()
-    cand_coords = (
+    sites = merge_station_sites(
         np.array([[g.x, g.y] for g in candidates.geometry])
         if not candidates.empty
         else np.empty((0, 2))
     )
-    used: set[int] = set()
+
+    chosen: list[np.ndarray] = []
+    real_flags: list[bool] = []
+
+    if len(sites) >= count:
+        # Enough real sites: keep the ones serving the most käyttöpaikat.
+        nearest = np.argmin(
+            np.linalg.norm(coords[:, None, :] - sites[None, :, :], axis=2), axis=1
+        )
+        served = np.bincount(nearest, minlength=len(sites))
+        for idx in np.argsort(-served)[:count]:
+            chosen.append(sites[idx])
+            real_flags.append(True)
+    else:
+        # Not enough real sites: fall back to population centres.
+        if count == 1:
+            centres, sizes = coords.mean(axis=0, keepdims=True), np.array([len(coords)])
+        else:
+            km = KMeans(n_clusters=count, n_init=4, random_state=11).fit(coords)
+            centres, sizes = km.cluster_centers_, np.bincount(km.labels_, minlength=count)
+        used: set[int] = set()
+        for ci in np.argsort(-sizes):  # largest population centre first
+            centre = centres[ci]
+            point, real = None, False
+            if len(sites):
+                distances = np.linalg.norm(sites - centre, axis=1)
+                for idx in np.argsort(distances):
+                    if int(idx) in used or distances[idx] > STATION_SNAP_MAX_M:
+                        continue
+                    used.add(int(idx))
+                    point, real = sites[idx], True
+                    break
+            if point is None:
+                point = coords[int(np.argmin(np.linalg.norm(coords - centre, axis=1)))]
+            chosen.append(point)
+            real_flags.append(real)
 
     rows = []
-    for rank, ci in enumerate(order):
-        centre = centres[ci]
-        point, real = None, False
-        if len(cand_coords):
-            for idx in np.argsort(np.linalg.norm(cand_coords - centre, axis=1)):
-                if int(idx) not in used:
-                    used.add(int(idx))
-                    point, real = Point(*cand_coords[idx]), True
-                    break
-        if point is None:
-            nearest = int(np.argmin(np.linalg.norm(coords - centre, axis=1)))
-            point = Point(*coords[nearest])
+    for rank, (point, real) in enumerate(zip(chosen, real_flags)):
         seed = seeds[rank] if rank < len(seeds) else {}
         rows.append(
             {
                 "ss_id": seed.get("id") or f"SS-{slugify(cfg['name']).upper()}-{rank + 1}",
                 "name": seed.get("name") or f"{cfg['name']} {rank + 1}",
                 "from_mml_point": real,
-                "geometry": point,
+                "geometry": Point(*point),
             }
         )
     return gpd.GeoDataFrame(rows, crs=TM35FIN)

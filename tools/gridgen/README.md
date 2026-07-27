@@ -26,6 +26,7 @@ python -m tools.gridgen build --municipality Kuhmoinen    # anywhere else
 | `download -m <municipality>` | Fetch + cache those map sheets. |
 | `config -m <municipality>` | Write a starter `config/municipality.<slug>.json` derived from the real boundary. |
 | `build -m <municipality>` | Download (if needed) and generate the full grid. |
+| `rebind --scenario <id>` | Re-point a scenario's `seg_id`s at a regenerated grid. |
 
 `--municipality` accepts a Finnish name, a Swedish name or a kunta code —
 `Sysmä`, `Pargas`, `781` all work, and prefixes match when unambiguous.
@@ -53,6 +54,34 @@ python -m tools.gridgen tiles -m 781
 python -m tools.gridgen config -m Kuhmoinen --feeders 4 --substations 2
 python -m tools.gridgen build -m Kuhmoinen --out tools/gridgen/output-kuhmoinen
 ```
+
+## Rebinding a scenario
+
+Scenarios reference concrete `seg_id`s (`F04-S09`), so regenerating the grid
+invalidates every fault, maintenance job and live incident in
+`scenarios/*.json`. `rebind` rewires them automatically:
+
+```bash
+cp -r tools/gridgen/output /tmp/grid-old          # keep the grid you authored against
+python -m tools.gridgen build  -m Sysmä --force
+python -m tools.gridgen rebind --scenario mauri-2026 --from-grid /tmp/grid-old -n   # preview
+python -m tools.gridgen rebind --scenario mauri-2026 --from-grid /tmp/grid-old
+python tools/gridgen/routegen.py --scenario mauri-2026                              # refresh routes
+```
+
+Each entry keeps the two things that make a scenario a scenario:
+
+- **Where it happens** — it binds to the segment nearest the authored location,
+  so the storm still sweeps the same geography.
+- **How much it hurts** — segments are matched on their share of the
+  municipality's käyttöpaikat, and a fault authored on a feeder *root* stays on
+  a feeder root. A "whole feeder trips" fault can't silently become a
+  two-customer spur.
+
+`--from-grid` supplies the impact baseline; without it, entries rebind on
+geography alone. Crew depots are snapped to their nearest substation. `-n` /
+`--dry-run` prints the mapping (including how far each entry moved) without
+writing.
 
 ## Data sources
 

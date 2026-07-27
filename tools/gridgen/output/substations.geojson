@@ -3,7 +3,7 @@
 "name": "substations",
 "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
 "features": [
-{ "type": "Feature", "properties": { "ss_id": "SS-SYSMA", "name": "Sysmä" }, "geometry": { "type": "Point", "coordinates": [ 25.714265606106601, 61.506911619177885 ] } },
-{ "type": "Feature", "properties": { "ss_id": "SS-NUORAMOINEN", "name": "Nuoramoinen" }, "geometry": { "type": "Point", "coordinates": [ 25.858266745864199, 61.435471790894624 ] } }
+{ "type": "Feature", "properties": { "ss_id": "SS-SYSMA", "name": "Sysmä", "from_mml_point": true }, "geometry": { "type": "Point", "coordinates": [ 25.714405740993762, 61.50681139835168 ] } },
+{ "type": "Feature", "properties": { "ss_id": "SS-NUORAMOINEN", "name": "Nuoramoinen", "from_mml_point": true }, "geometry": { "type": "Point", "coordinates": [ 25.858351073796747, 61.435583572224594 ] } }
 ]
 }

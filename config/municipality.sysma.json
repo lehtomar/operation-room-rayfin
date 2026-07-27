@@ -15,7 +15,7 @@
     "kuntajakoYear": "2025",
     "transformerCount": { "min": 120, "max": 180 },
     "feederCount": 6,
-    "kayttopaikatTarget": 2900,
+    "kayttopaikatTarget": 6100,
     "substationCount": 2,
     "substations": [
       { "id": "SS-SYSMA", "name": "Sysmä", "seedPlaceName": "Sysmä" },

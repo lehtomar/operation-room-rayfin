@@ -87,10 +87,19 @@ plus one command.
    `--force` is required because regenerating changes the `seg_id`s that
    existing scenarios reference. Use `--out <dir>` to keep the Sysmä grid intact.
 
-3. **Author a scenario.** Copy `scenarios/mauri-2026.json` to
-   `scenarios/<storm>.json`, pick real `seg_id`s from
-   `tools/gridgen/output/feeders.parquet` (root segments = whole-feeder trips),
-   set crew depots, skills and shift. Run any command with `--scenario <storm>`.
+3. **Rebind the scenario.** Regenerating the grid invalidates the `seg_id`s in
+   `scenarios/*.json`. Keep a copy of the grid the scenario was authored against
+   and let `rebind` rewire it — it preserves each entry's location *and* its
+   share of käyttöpaikat, so feeder-root trips stay feeder-root trips:
+   ```bash
+   python -m tools.gridgen rebind --scenario <storm> --from-grid <old-grid-dir> -n
+   python -m tools.gridgen rebind --scenario <storm> --from-grid <old-grid-dir>
+   ```
+   Then review the authored fields `rebind` does not touch: `offsetMin`,
+   `repair_effort_min`, `requiredSkill`, `note`, crew skills/shifts, and the
+   storm front/wind curve. To author a scenario from scratch instead, pick real
+   `seg_id`s from `tools/gridgen/output/feeders.parquet` (root segments =
+   whole-feeder trips).
 
 4. **Precompute crew routes.**
    ```bash

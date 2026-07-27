@@ -20,6 +20,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.gridgen import gridgen, mmlsource  # noqa: E402
+from tools.gridgen.rebind import Grid, rebind_scenario, snap_depots  # noqa: E402
 
 OUTPUT_FILES = (
     "substations.geojson",
@@ -159,6 +160,35 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rebind(args: argparse.Namespace) -> int:
+    path = Path(args.scenario)
+    if not path.exists():
+        path = REPO_ROOT / "scenarios" / f"{args.scenario}.json"
+    if not path.exists():
+        print(f"error: no scenario at {path}", file=sys.stderr)
+        return 1
+
+    scenario = json.loads(path.read_text(encoding="utf-8"))
+    new_grid = Grid.load(Path(args.grid))
+    old_grid = Grid.load(Path(args.from_grid)) if args.from_grid else None
+    if old_grid is None:
+        print("[rebind] no --from-grid: matching on geography only")
+
+    print(f"[rebind] {path.name}: {new_grid.total_kayttopaikat} käyttöpaikat in {args.grid}")
+    report = rebind_scenario(scenario, new_grid, old_grid)
+    print("[rebind] crew depots:")
+    snap_depots(scenario, Path(args.grid))
+
+    if args.dry_run:
+        print("[rebind] dry run — scenario not written")
+        return 0
+    path.write_text(json.dumps(scenario, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"[rebind] rewrote {len(report)} entries in {path}")
+    print("  Re-run routegen so crew routes match the new locations:")
+    print(f"    python tools/gridgen/routegen.py --scenario {scenario['id']}")
+    return 0
+
+
 # --------------------------------------------------------------------------
 # Parser
 # --------------------------------------------------------------------------
@@ -230,6 +260,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="overwrite existing output")
     p.add_argument("--json", action="store_true", help="print a JSON summary")
     p.set_defaults(func=cmd_build)
+
+    p = sub.add_parser("rebind", help="re-point a scenario's seg_ids at a regenerated grid")
+    p.add_argument("--scenario", default="mauri-2026", help="scenario id or path (default: %(default)s)")
+    p.add_argument(
+        "--grid",
+        default=str(gridgen.DEFAULT_OUTPUT_DIR),
+        help="the new grid to bind to (default: %(default)s)",
+    )
+    p.add_argument(
+        "--from-grid",
+        help="the grid the scenario was authored against; enables impact matching",
+    )
+    p.add_argument("-n", "--dry-run", action="store_true", help="report without writing")
+    p.set_defaults(func=cmd_rebind)
 
     return parser
 

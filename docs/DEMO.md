@@ -62,7 +62,7 @@ The deployed demo runs **entirely client-side in the browser**. `SimDriver` uses
 - Optionally turn **AUTO** on to auto-assign the nearest skilled crew.
 - Use **⟲ Reset** if you need to replay from the idle state.
 
-For the storm walkthrough, use the **10-step demo script in `README.md`** rather than duplicating it here. It covers the Myrsky Mauri front moving NW→SE, seven faults including the ~639-käyttöpaikka feeder trip and remote lakeside fault, fault detail panel with **Suggest dispatch**, incident-card drag-and-drop onto the Field Crews Gantt, road-based crew travel, restoration, and KPI recovery.
+For the storm walkthrough, use the **10-step demo script in `README.md`** rather than duplicating it here. It covers the Myrsky Mauri front moving NW→SE, seven faults including two primary feeder trips (~1 130 and ~770 käyttöpaikkaa) and the remote lakeside fault, fault detail panel with **Suggest dispatch**, incident-card drag-and-drop onto the Field Crews Gantt, road-based crew travel, restoration, and KPI recovery.
 
 ## Story arc: situational awareness → response
 
