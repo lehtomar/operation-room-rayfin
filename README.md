@@ -75,6 +75,9 @@ so it is deterministic and presentation-ready without a simulator service.
 - **Python, GeoPandas, NetworkX, and MML open data** for grid generation
 - **KQL templates** for a future Eventstream and Eventhouse real-time path
 
+[Read our concise Rayfin platform feedback](./RAYFIN-FEEDBACK.md), based on
+building and deploying Gridwatch end to end.
+
 ```mermaid
 flowchart LR
   MML[MML open data] --> GEN[Grid generator]
