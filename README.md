@@ -5,8 +5,8 @@ see impact, dispatch the right crew, and restore power faster.**
 
 ![Gridwatch storm operations control room](./docs/screenshot.png)
 
-https://github.com/user-attachments/assets/32bded94-cb01-4f4b-8ca2-f51194c01ba7
 
+https://github.com/user-attachments/assets/900916a2-a298-45ce-825e-3a54849cd053
 
 ## The problem
 
