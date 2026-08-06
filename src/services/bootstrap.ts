@@ -3,6 +3,8 @@ import { MockAuthService } from './MockAuthService';
 import { RayfinAuthService } from './RayfinAuthService';
 import { initRayfinClient } from './rayfinClient';
 
+let authService: IAuthService | null = null;
+
 function isLocalBackendUrl(url: string): boolean {
   try {
     const { hostname } = new URL(url);
@@ -20,6 +22,8 @@ function isLocalBackendUrl(url: string): boolean {
  * - Anything else     → {@link RayfinAuthService} (requires VITE_FABRIC_* vars)
  */
 export function bootstrapAuth(): IAuthService {
+  if (authService) return authService;
+
   const apiUrl = import.meta.env.VITE_RAYFIN_API_URL || 'http://localhost:5168';
   const localDev = isLocalBackendUrl(apiUrl);
   const publishableKey = import.meta.env.VITE_RAYFIN_PUBLISHABLE_KEY;
@@ -30,14 +34,14 @@ export function bootstrapAuth(): IAuthService {
     );
   }
 
-  const client = initRayfinClient({
-    baseUrl: apiUrl.endsWith('/') ? apiUrl : `${apiUrl}/`,
-    publishableKey: publishableKey ?? 'local-dev-key',
-    localDev,
-  });
-
   if (localDev) {
-    return new MockAuthService(client);
+    const client = initRayfinClient({
+      baseUrl: apiUrl.endsWith('/') ? apiUrl : `${apiUrl}/`,
+      publishableKey: publishableKey ?? 'local-dev-key',
+      localDev,
+    });
+    authService = new MockAuthService(client);
+    return authService;
   }
 
   const workspaceId = import.meta.env.VITE_FABRIC_WORKSPACE_ID;
@@ -50,10 +54,16 @@ export function bootstrapAuth(): IAuthService {
     );
   }
 
-  return new RayfinAuthService(client, {
+  const client = initRayfinClient({
+    baseUrl: apiUrl.endsWith('/') ? apiUrl : `${apiUrl}/`,
+    publishableKey,
+    localDev,
+  });
+  authService = new RayfinAuthService(client, {
     workspaceId,
     projectId,
     fabricPortalUrl,
     returnOrigin: window.location.origin,
   });
+  return authService;
 }
