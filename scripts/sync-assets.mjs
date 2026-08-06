@@ -1,7 +1,7 @@
 // Copies generated grid assets + config into public/data so the frontend can
 // fetch them at runtime. Runs in predev/prebuild. public/data is gitignored
 // (regenerated from committed sources in tools/gridgen/output + config).
-import { mkdirSync, copyFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, copyFileSync, writeFileSync, existsSync, cpSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,6 +32,13 @@ if (existsSync(basemapLocal)) {
   copyFileSync(basemapLocal, basemapOut);
 } else {
   writeFileSync(basemapOut, JSON.stringify({ provider: 'mtk-vector' }, null, 2));
+}
+
+const radarArchive = resolve(root, 'assets', 'radar');
+if (existsSync(radarArchive)) {
+  const radarOut = resolve(out, 'radar');
+  rmSync(radarOut, { recursive: true, force: true });
+  cpSync(radarArchive, radarOut, { recursive: true });
 }
 
 console.log('[sync-assets] grid + config copied to public/data');

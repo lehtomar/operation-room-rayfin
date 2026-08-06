@@ -31,9 +31,10 @@ export function SimControls(props: SimControlsProps) {
       <button
         className={`sbtn auto ${props.auto ? 'active' : ''}`}
         onClick={props.onToggleAuto}
-        title="Auto-dispatch nearest skilled crew"
+        title={`Auto-assign nearest skilled crew is ${props.auto ? 'on' : 'off'}`}
+        aria-pressed={props.auto}
       >
-        AUTO
+        AUTO ASSIGN · {props.auto ? 'ON' : 'OFF'}
       </button>
       <button className="pbtn reset" onClick={props.onReset} title="Reset scenario">
         ⟲

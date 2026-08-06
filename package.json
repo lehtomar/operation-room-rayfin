@@ -13,6 +13,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "radar:archive": "node scripts/download-radar-archive.mjs",
+    "routes:fill": "node scripts/download-missing-routes.mjs",
     "rayfin:db": "rayfin up db apply"
   },
   "dependencies": {

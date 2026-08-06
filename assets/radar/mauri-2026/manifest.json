@@ -1,0 +1,19 @@
+{
+  "scenarioId": "mauri-2026",
+  "start": "2026-07-09T08:00:00.000Z",
+  "end": "2026-07-09T12:00:00.000Z",
+  "stepMinutes": 5,
+  "bounds": [
+    24.8,
+    61.1,
+    26.8,
+    62
+  ],
+  "frameCount": 49,
+  "imageSize": [
+    1024,
+    1024
+  ],
+  "source": "FMI Radar:suomi_dbz_eureffin",
+  "archivedAt": "2026-07-13T18:59:45.871Z"
+}

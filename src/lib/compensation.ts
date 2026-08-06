@@ -7,7 +7,7 @@ import type { CompensationTier, Incident } from './types';
  * affected customer a percentage of their annual distribution-network fee based
  * on continuous outage duration. We project the € owed *if nothing restores*:
  * for each active incident, take its outage hours (elapsed so far), find the
- * highest reached tier, and multiply by affected käyttöpaikat × annual fee.
+ * highest reached tier, and multiply by affected customers × annual fee.
  *
  * Source: https://finlex.fi/fi/laki/ajantasa/2013/20130588 (§100).
  */

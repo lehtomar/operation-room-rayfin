@@ -10,6 +10,7 @@ import {
   subtreeSegments,
 } from '../lib/topology';
 import type { CompensationTier, Incident, Topology } from '../lib/types';
+import { faultDispatchStatus } from '../lib/events';
 
 const TIERS: CompensationTier[] = [
   { hours: 12, pct: 10 },
@@ -94,13 +95,22 @@ describe('topology', () => {
     ],
   };
 
-  it('unions downstream käyttöpaikat across active incidents (deduping)', () => {
+  it('unions downstream customers across active incidents (deduping)', () => {
     const de = deEnergizedFromIncidents(topo, [
       inc({ incident_id: 'A', seg_id: 'S1', status: 'open' }),
       inc({ incident_id: 'B', seg_id: 'S1', status: 'open' }), // overlap dedupes
     ]);
     expect(de.customersOut).toBe(2);
     expect([...de.transformers].sort()).toEqual(['T1']);
+  });
+
+  describe('fault map dispatch status', () => {
+    it('distinguishes unassigned, queued, assigned, and onsite faults', () => {
+      expect(faultDispatchStatus(inc({ status: 'open' }))).toBe('unassigned');
+      expect(faultDispatchStatus(inc({ status: 'open', reserved_crew_id: 'K-1' }))).toBe('queued');
+      expect(faultDispatchStatus(inc({ status: 'enroute', crew_id: 'K-1' }))).toBe('assigned');
+      expect(faultDispatchStatus(inc({ status: 'onsite', crew_id: 'K-1' }))).toBe('onsite');
+    });
   });
 
   it('marks the whole downstream segment subtree as de-energized', () => {

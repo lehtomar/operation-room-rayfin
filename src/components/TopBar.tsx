@@ -27,6 +27,8 @@ interface TopBarProps {
   fmiWind: FmiWind | null; // live FMI wind
   mode: 'storm' | 'live';
   onMode: (m: 'storm' | 'live') => void;
+  page: 'operations' | 'crews';
+  onPage: (page: 'operations' | 'crews') => void;
 }
 
 const nf = new Intl.NumberFormat('fi-FI');
@@ -62,16 +64,19 @@ export function TopBar(props: TopBarProps) {
   return (
     <header className="topbar">
       <div className="brand">
-        <div className="brand-title">VERKKOVAHTI</div>
+        <div className="brand-title">GRIDWATCH</div>
         <div className="brand-sub">GRID OPERATIONS · DSO</div>
       </div>
 
       <div className="viewmode">
-        <button className={`vm-btn ${!live ? 'active' : ''}`} onClick={() => props.onMode('storm')}>
+        <button className={`vm-btn ${props.page === 'operations' && !live ? 'active' : ''}`} onClick={() => props.onMode('storm')}>
           Storm replay
         </button>
-        <button className={`vm-btn ${live ? 'active' : ''}`} onClick={() => props.onMode('live')}>
+        <button className={`vm-btn ${props.page === 'operations' && live ? 'active' : ''}`} onClick={() => props.onMode('live')}>
           Live
+        </button>
+        <button className={`vm-btn ${props.page === 'crews' ? 'active' : ''}`} onClick={() => props.onPage('crews')}>
+          Crews
         </button>
       </div>
 
@@ -80,7 +85,7 @@ export function TopBar(props: TopBarProps) {
           label="Customers without power"
           value={nf.format(kpis.customersOut)}
           tone="danger"
-          sub={`of ${nf.format(sub.totalKp)} käyttöpaikkaa · ${sub.pctOut.toFixed(1)} %`}
+          sub={`of ${nf.format(sub.totalKp)} customers · ${sub.pctOut.toFixed(1)} %`}
         />
         <Kpi
           label="Active faults"

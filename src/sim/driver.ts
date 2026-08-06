@@ -1,6 +1,6 @@
 import type { GridAssets } from '../grid/assets';
 import { haversineKm, etaMinutes } from '../lib/geo';
-import type { Crew, GridEventRow, Incident, LiveState, RouteMap, ScenarioMeta, Topology } from '../lib/types';
+import type { Crew, CrewDefinition, GridEventRow, Incident, LiveState, RouteMap, ScenarioMeta, Topology } from '../lib/types';
 import { windAt } from '../lib/wind';
 
 const CREW_SPEED_KMH = 60;
@@ -38,6 +38,7 @@ interface CrewState {
   routeCum: number[]; // cumulative km per vertex
   routeDist: number; // km driven along the route
   routeTotal: number; // total km
+  routeHome: [number, number][]; // driven route back through prior jobs to depot
 }
 interface IncidentState {
   incident_id: string;
@@ -58,6 +59,7 @@ interface IncidentState {
   restored_at: string | null;
   reserveNext: boolean;
   reserved_crew_id: string | null;
+  reservedAt: Date | null;
 }
 
 /**
@@ -74,6 +76,7 @@ export class SimDriver {
   private depotIdByCrew = new Map<string, string>();
   private start: Date;
   private simClock: Date;
+  private crewDefinitions: CrewDefinition[];
   mode: 'storm' | 'live' = 'storm';
   playing = false;
   speed = 24;
@@ -88,11 +91,22 @@ export class SimDriver {
 
   constructor(
     assets: GridAssets,
-    private persist: Persist | null = null
+    private persist: Persist | null = null,
+    crewDefinitions?: CrewDefinition[]
   ) {
     this.meta = assets.scenario;
     this.topo = assets.topology;
     this.routes = assets.routes ?? {};
+    this.crewDefinitions =
+      crewDefinitions ??
+      this.meta.crews.map((c) => ({
+        crew_id: c.crew_id,
+        callsign: c.callsign,
+        skills: c.skills,
+        depot: c.depot,
+        shiftStart: this.meta.startWallClock,
+        shiftEnd: new Date(new Date(this.meta.startWallClock).getTime() + 8 * 3600_000).toISOString(),
+      }));
     // Transformer coordinates, for placing live-seed incidents/maintenance.
     for (const f of assets.transformers?.features ?? []) {
       const id = (f.properties as { tr_id?: string } | null)?.tr_id;
@@ -101,7 +115,7 @@ export class SimDriver {
     }
     // Depot ids must match routegen.py: unique depot coords in crew order.
     const depotIds = new Map<string, string>();
-    for (const c of this.meta.crews) {
+    for (const c of this.crewDefinitions) {
       const key = `${c.depot.lat.toFixed(6)},${c.depot.lon.toFixed(6)}`;
       if (!depotIds.has(key)) depotIds.set(key, `DEPOT-${depotIds.size}`);
       this.depotIdByCrew.set(c.crew_id, depotIds.get(key)!);
@@ -141,7 +155,7 @@ export class SimDriver {
     this.fired.clear();
     this.onsiteAt.clear();
     this.crews.clear();
-    for (const c of this.meta.crews) {
+    for (const c of this.crewDefinitions) {
       this.crews.set(c.crew_id, {
         crew_id: c.crew_id,
         callsign: c.callsign,
@@ -157,6 +171,7 @@ export class SimDriver {
         routeCum: [],
         routeDist: 0,
         routeTotal: 0,
+        routeHome: [],
       });
     }
     if (persist && this.persist) {
@@ -208,7 +223,7 @@ export class SimDriver {
         feeder_id: m.feeder_id,
         ss_id: m.ss_id,
         fault_type: 'scheduled_maintenance',
-        status: 'onsite',
+        status: startTs.getTime() <= now.getTime() ? 'onsite' : 'scheduled',
         affected_kp: 0,
         affected_tr: seg?.transformer_ids.length ?? 0,
         repair_effort_min: m.durationMin,
@@ -221,10 +236,11 @@ export class SimDriver {
         restored_at: null,
         reserveNext: false,
         reserved_crew_id: null,
+        reservedAt: null,
       });
       this.fired.add(m.job_id);
       const crew = this.crews.get(m.crew_id);
-      if (crew) {
+      if (crew && startTs.getTime() <= now.getTime()) {
         crew.status = 'onsite';
         crew.current_incident_id = m.job_id;
         crew.lat = lat;
@@ -232,13 +248,15 @@ export class SimDriver {
         crew.locationId = m.job_id;
         this.onsiteAt.set(m.crew_id, startTs);
       }
-      this.emitAt(startTs.toISOString(), 'crew_status', m.crew_id, m.feeder_id, {
-        assigned: m.job_id,
-        eta_min: 0,
-        maintenance: true,
-        title: m.title,
-      });
-      this.emitAt(startTs.toISOString(), 'crew_status', m.crew_id, m.feeder_id, { onsite: m.job_id });
+      if (startTs.getTime() <= now.getTime()) {
+        this.emitAt(startTs.toISOString(), 'crew_status', m.crew_id, m.feeder_id, {
+          assigned: m.job_id,
+          eta_min: 0,
+          maintenance: true,
+          title: m.title,
+        });
+        this.emitAt(startTs.toISOString(), 'crew_status', m.crew_id, m.feeder_id, { onsite: m.job_id });
+      }
     }
 
     for (const f of seed.incidents) {
@@ -264,6 +282,7 @@ export class SimDriver {
         restored_at: null,
         reserveNext: false,
         reserved_crew_id: null,
+        reservedAt: null,
       });
       this.fired.add(f.incident_id);
       this.emitAt(startTs.toISOString(), 'fault', f.seg_id, f.feeder_id, {
@@ -301,6 +320,8 @@ export class SimDriver {
     if (this.mode === 'storm') {
       this.fireFaults(elapsedMin);
       if (this.auto) this.autoDispatch();
+    } else {
+      this.startScheduledMaintenance();
     }
     this.moveCrews(dtRealSec * this.speed);
     if (this.mode === 'storm') this.checkDone(elapsedMin);
@@ -330,6 +351,7 @@ export class SimDriver {
         restored_at: null,
         reserveNext: false,
         reserved_crew_id: null,
+        reservedAt: null,
       };
       this.incidents.set(f.incident_id, inc);
       this.fired.add(f.incident_id);
@@ -340,7 +362,7 @@ export class SimDriver {
 
   private autoDispatch(): void {
     for (const inc of this.incidents.values()) {
-      if (inc.status !== 'open' || inc.crew_id) continue;
+      if (inc.status !== 'open' || inc.crew_id || inc.reserveNext) continue;
       const crew = this.nearestCrew(inc);
       if (crew) this.assign(inc.incident_id, crew.crew_id);
     }
@@ -360,29 +382,72 @@ export class SimDriver {
     return best;
   }
 
-  /** Estimated wall-clock ms when a crew will next be free/idle. */
-  private crewFreeAtMs(crew: CrewState): number {
-    if (crew.status === 'idle') return this.simClock.getTime();
-    const inc = crew.current_incident_id ? this.incidents.get(crew.current_incident_id) : null;
-    const repairMs = (inc?.repair_effort_min ?? 60) * 60000;
-    if (crew.status === 'onsite') {
-      const onsite = this.onsiteAt.get(crew.crew_id) ?? this.simClock;
-      return onsite.getTime() + repairMs;
+  /** Project a crew through its active and already-reserved work. */
+  private crewSchedule(crew: CrewState): { freeAtMs: number; lat: number; lon: number } {
+    let freeAtMs = this.simClock.getTime();
+    let lat = crew.lat;
+    let lon = crew.lon;
+
+    if (crew.status === 'returning') {
+      const remainingKm = Math.max(0, crew.routeTotal - crew.routeDist);
+      freeAtMs += (remainingKm / CREW_SPEED_KMH) * 3600_000;
+      lat = crew.depotLat;
+      lon = crew.depotLon;
+    } else {
+      const current = crew.current_incident_id ? this.incidents.get(crew.current_incident_id) : null;
+      if (current) {
+        lat = current.lat;
+        lon = current.lon;
+        if (crew.status === 'onsite') {
+          const onsite = this.onsiteAt.get(crew.crew_id) ?? this.simClock;
+          const elapsedMs = Math.max(0, this.simClock.getTime() - onsite.getTime());
+          freeAtMs += Math.max(0, current.repair_effort_min * 60000 - elapsedMs);
+        } else {
+          const remainingKm = crew.route
+            ? Math.max(0, crew.routeTotal - crew.routeDist)
+            : haversineKm(crew.lat, crew.lon, current.lat, current.lon);
+          freeAtMs += (remainingKm / CREW_SPEED_KMH) * 3600_000 + current.repair_effort_min * 60000;
+        }
+      }
     }
-    const etaMs = (inc?.eta_min ?? 10) * 60000; // enroute: remaining travel + repair
-    return this.simClock.getTime() + etaMs + repairMs;
+
+    const reserved = [...this.incidents.values()]
+      .filter(
+        (incident) =>
+          incident.status === 'open' &&
+          incident.reserveNext &&
+          incident.reserved_crew_id === crew.crew_id
+      )
+      .sort(
+        (a, b) =>
+          (a.reservedAt?.getTime() ?? Number.MAX_SAFE_INTEGER) -
+          (b.reservedAt?.getTime() ?? Number.MAX_SAFE_INTEGER)
+      );
+    for (const incident of reserved) {
+      const travelMin = etaMinutes(lat, lon, incident.lat, incident.lon);
+      freeAtMs += (travelMin + incident.repair_effort_min) * 60000;
+      lat = incident.lat;
+      lon = incident.lon;
+    }
+    return { freeAtMs, lat, lon };
   }
 
   /** The skilled crew that will be free soonest (tie-break: closest). */
-  private soonestFreeCrew(inc: IncidentState): { crew: CrewState; freeAtMs: number } | null {
-    let best: { crew: CrewState; freeAtMs: number } | null = null;
+  private soonestFreeCrew(
+    inc: IncidentState
+  ): { crew: CrewState; freeAtMs: number; etaMin: number } | null {
+    let best: { crew: CrewState; freeAtMs: number; etaMin: number } | null = null;
     let bestKm = Infinity;
     for (const c of this.crews.values()) {
       if (!c.skills.includes(inc.required_skill)) continue;
-      const freeAt = this.crewFreeAtMs(c);
-      const km = haversineKm(c.lat, c.lon, inc.lat, inc.lon);
-      if (!best || freeAt < best.freeAtMs || (freeAt === best.freeAtMs && km < bestKm)) {
-        best = { crew: c, freeAtMs: freeAt };
+      const schedule = this.crewSchedule(c);
+      const km = haversineKm(schedule.lat, schedule.lon, inc.lat, inc.lon);
+      if (!best || schedule.freeAtMs < best.freeAtMs || (schedule.freeAtMs === best.freeAtMs && km < bestKm)) {
+        best = {
+          crew: c,
+          freeAtMs: schedule.freeAtMs,
+          etaMin: etaMinutes(schedule.lat, schedule.lon, inc.lat, inc.lon),
+        };
         bestKm = km;
       }
     }
@@ -408,29 +473,54 @@ export class SimDriver {
     const s = this.soonestFreeCrew(inc);
     if (!s) return;
     // If a matching crew is already idle, dispatch immediately.
-    if (s.crew.status === 'idle') {
+    if (s.crew.status === 'idle' && s.freeAtMs <= this.simClock.getTime()) {
       this.assign(incidentId, s.crew.crew_id);
       return;
     }
     inc.reserveNext = true;
-    inc.reserved_crew_id = s.crew.crew_id; // display hint (actual crew = first to free)
-    this.emit('crew_status', s.crew.crew_id, inc.feeder_id, { reserved: incidentId });
+    inc.reserved_crew_id = s.crew.crew_id;
+    inc.reservedAt = new Date(this.simClock);
+    inc.eta_min = s.etaMin;
+    this.emit('crew_status', s.crew.crew_id, inc.feeder_id, {
+      reserved: incidentId,
+      eta_min: s.etaMin,
+    });
   }
 
   /** When a crew becomes idle, give it the best waiting incident it may take. */
-  private tryAssignFreedCrew(crew: CrewState): void {
+  private tryAssignFreedCrew(crew: CrewState): boolean {
+    const reserved = [...this.incidents.values()]
+      .filter(
+        (incident) =>
+          incident.status === 'open' &&
+          incident.reserveNext &&
+          incident.reserved_crew_id === crew.crew_id &&
+          crew.skills.includes(incident.required_skill)
+      )
+      .sort(
+        (a, b) =>
+          (a.reservedAt?.getTime() ?? Number.MAX_SAFE_INTEGER) -
+          (b.reservedAt?.getTime() ?? Number.MAX_SAFE_INTEGER)
+      )[0];
+    if (reserved) {
+      this.assign(reserved.incident_id, crew.crew_id);
+      return true;
+    }
+
+    if (!this.auto || this.mode !== 'storm') return false;
     let best: IncidentState | null = null;
     let bestKm = Infinity;
     for (const inc of this.incidents.values()) {
-      if (inc.status !== 'open') continue;
-      if (!((inc.reserveNext || (this.auto && this.mode === 'storm')) && crew.skills.includes(inc.required_skill))) continue;
+      if (inc.status !== 'open' || inc.reserveNext || !crew.skills.includes(inc.required_skill)) continue;
       const km = haversineKm(crew.lat, crew.lon, inc.lat, inc.lon);
       if (km < bestKm) {
         bestKm = km;
         best = inc;
       }
     }
-    if (best) this.assign(best.incident_id, crew.crew_id);
+    if (!best) return false;
+    this.assign(best.incident_id, crew.crew_id);
+    return true;
   }
 
   assign(incidentId: string, crewId: string): void {
@@ -439,20 +529,28 @@ export class SimDriver {
     if (!inc || !crew || inc.status !== 'open' || crew.status !== 'idle') return;
     // Follow the precomputed road route from the crew's current location.
     const route = this.routes[`${crew.locationId}->${incidentId}`];
+    const origin: [number, number] = [crew.lon, crew.lat];
+    let outbound: [number, number][];
     let eta: number;
     if (route && route.coords.length >= 2) {
       crew.route = route.coords;
+      outbound = route.coords;
       crew.routeCum = cumulativeKm(route.coords);
       crew.routeTotal = crew.routeCum[crew.routeCum.length - 1];
       crew.routeDist = 0;
       eta = Math.max(1, Math.round((crew.routeTotal / CREW_SPEED_KMH) * 60));
     } else {
       crew.route = null;
+      outbound = [origin, [inc.lon, inc.lat]];
       eta = etaMinutes(crew.lat, crew.lon, inc.lat, inc.lon);
     }
+    crew.routeHome = joinRoutes([...outbound].reverse() as [number, number][], crew.routeHome);
     inc.status = 'assigned';
     inc.crew_id = crewId;
     inc.eta_min = eta;
+    inc.reserveNext = false;
+    inc.reserved_crew_id = null;
+    inc.reservedAt = null;
     crew.status = 'enroute';
     crew.current_incident_id = incidentId;
     this.emit('crew_status', crewId, inc.feeder_id, { assigned: incidentId, eta_min: eta });
@@ -469,10 +567,112 @@ export class SimDriver {
     this.persist?.incident(this.incidentRow(inc)).catch(() => {});
   }
 
+  private beginReturnToDepot(crew: CrewState, incidentId: string): void {
+    const depotId = this.depotIdByCrew.get(crew.crew_id) ?? 'DEPOT-0';
+    const outbound = this.routes[`${depotId}->${incidentId}`];
+    if (outbound?.coords.length >= 2) {
+      crew.route = [...outbound.coords].reverse() as [number, number][];
+      crew.routeCum = cumulativeKm(crew.route);
+      crew.routeTotal = crew.routeCum[crew.routeCum.length - 1];
+      crew.routeDist = 0;
+    } else if (crew.routeHome.length >= 2) {
+      crew.route = [...crew.routeHome];
+      crew.routeCum = cumulativeKm(crew.route);
+      crew.routeTotal = crew.routeCum[crew.routeCum.length - 1];
+      crew.routeDist = 0;
+    } else {
+      crew.route = null;
+      crew.routeCum = [];
+      crew.routeTotal = haversineKm(crew.lat, crew.lon, crew.depotLat, crew.depotLon);
+      crew.routeDist = 0;
+    }
+    crew.status = 'returning';
+    crew.current_incident_id = null;
+    const eta = Math.max(1, Math.round((crew.routeTotal / CREW_SPEED_KMH) * 60));
+    this.emit('crew_status', crew.crew_id, null, { returning: depotId, eta_min: eta });
+    this.persist?.crew(crew.crew_id, { status: 'returning', current_incident_id: null }).catch(() => {});
+  }
+
+  private finishReturn(crew: CrewState): void {
+    crew.lat = crew.depotLat;
+    crew.lon = crew.depotLon;
+    crew.status = 'idle';
+    crew.locationId = this.depotIdByCrew.get(crew.crew_id) ?? 'DEPOT-0';
+    crew.route = null;
+    crew.routeCum = [];
+    crew.routeDist = 0;
+    crew.routeTotal = 0;
+    crew.routeHome = [];
+    this.emit('crew_status', crew.crew_id, null, { returned: crew.locationId });
+    this.persist
+      ?.crew(crew.crew_id, {
+        lat: crew.lat.toFixed(6),
+        lon: crew.lon.toFixed(6),
+        status: 'idle',
+        current_incident_id: null,
+      })
+      .catch(() => {});
+    this.tryAssignFreedCrew(crew);
+  }
+
+  private startScheduledMaintenance(): void {
+    for (const inc of this.incidents.values()) {
+      if (
+        inc.fault_type !== 'scheduled_maintenance' ||
+        inc.status !== 'scheduled' ||
+        !inc.crew_id ||
+        !inc.started_at ||
+        new Date(inc.started_at).getTime() > this.simClock.getTime()
+      ) {
+        continue;
+      }
+      const crew = this.crews.get(inc.crew_id);
+      if (!crew || crew.status !== 'idle') continue;
+      crew.status = 'onsite';
+      crew.current_incident_id = inc.incident_id;
+      crew.lat = inc.lat;
+      crew.lon = inc.lon;
+      crew.locationId = inc.incident_id;
+      inc.status = 'onsite';
+      inc.eta_min = 0;
+      this.onsiteAt.set(crew.crew_id, new Date(this.simClock));
+      this.emit('crew_status', crew.crew_id, inc.feeder_id, {
+        assigned: inc.incident_id,
+        eta_min: 0,
+        maintenance: true,
+      });
+      this.emit('crew_status', crew.crew_id, inc.feeder_id, { onsite: inc.incident_id });
+    }
+  }
+
   private moveCrews(dtSimSec: number): void {
     const stepKm = CREW_SPEED_KMH * (dtSimSec / 3600);
     const persistPos = Date.now() - this.lastPosPersist > 2000;
     for (const crew of this.crews.values()) {
+      if (crew.status === 'returning') {
+        if (crew.route) {
+          crew.routeDist += stepKm;
+          if (crew.routeDist >= crew.routeTotal) {
+            this.finishReturn(crew);
+          } else {
+            const [lon, lat] = pointAlong(crew.route, crew.routeCum, crew.routeDist);
+            crew.lat = lat;
+            crew.lon = lon;
+            if (persistPos) this.persist?.crew(crew.crew_id, { lat: lat.toFixed(6), lon: lon.toFixed(6) }).catch(() => {});
+          }
+        } else {
+          const dist = haversineKm(crew.lat, crew.lon, crew.depotLat, crew.depotLon);
+          if (dist <= Math.max(ARRIVE_KM, stepKm)) {
+            this.finishReturn(crew);
+          } else {
+            const progress = stepKm / dist;
+            crew.lat += (crew.depotLat - crew.lat) * progress;
+            crew.lon += (crew.depotLon - crew.lon) * progress;
+            if (persistPos) this.persist?.crew(crew.crew_id, { lat: crew.lat.toFixed(6), lon: crew.lon.toFixed(6) }).catch(() => {});
+          }
+        }
+        continue;
+      }
       const incId = crew.current_incident_id;
       if (!incId || (crew.status !== 'enroute' && crew.status !== 'onsite')) continue;
       const inc = this.incidents.get(incId);
@@ -517,8 +717,7 @@ export class SimDriver {
           crew.current_incident_id = null;
           this.emit('restoration', inc.seg_id, inc.feeder_id, { incident_id: incId });
           this.persist?.incident(this.incidentRow(inc)).catch(() => {});
-          this.persist?.crew(crew.crew_id, { status: 'idle', current_incident_id: null }).catch(() => {});
-          this.tryAssignFreedCrew(crew);
+          if (!this.tryAssignFreedCrew(crew)) this.beginReturnToDepot(crew, incId);
         }
       }
     }
@@ -529,7 +728,8 @@ export class SimDriver {
     if (
       elapsedMin >= this.meta.simDurationMin &&
       this.fired.size === this.meta.faults.length &&
-      [...this.incidents.values()].every((i) => i.status === 'restored')
+      [...this.incidents.values()].every((i) => i.status === 'restored') &&
+      [...this.crews.values()].every((c) => c.status === 'idle' || c.status === 'offshift')
     ) {
       this.status = 'done';
     }
@@ -575,7 +775,7 @@ export class SimDriver {
       lat: c.lat.toFixed(6),
       lon: c.lon.toFixed(6),
       current_incident_id: c.current_incident_id,
-      route: c.status === 'enroute' && c.route ? c.route : null,
+      route: (c.status === 'enroute' || c.status === 'returning') && c.route ? c.route : null,
     }));
     const incidents: Incident[] = [...this.incidents.values()].map((i) => ({
       incident_id: i.incident_id,
@@ -631,4 +831,13 @@ function pointAlong(coords: [number, number][], cum: number[], distKm: number): 
   const a = coords[i - 1];
   const b = coords[i];
   return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+}
+
+function joinRoutes(first: [number, number][], rest: [number, number][]): [number, number][] {
+  if (first.length === 0) return [...rest];
+  if (rest.length === 0) return [...first];
+  const end = first[first.length - 1];
+  const start = rest[0];
+  const samePoint = end[0] === start[0] && end[1] === start[1];
+  return samePoint ? [...first, ...rest.slice(1)] : [...first, ...rest];
 }

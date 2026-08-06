@@ -7,6 +7,7 @@ import { FaultDetail } from './components/FaultDetail';
 import { IncidentQueue, type Suggestion, type ReserveHint } from './components/IncidentQueue';
 import { CrewPanel } from './components/CrewPanel';
 import { EventsTicker } from './components/EventsTicker';
+import { CrewManagement } from './components/CrewManagement';
 import { loadGridAssets, type GridAssets } from './grid/assets';
 import { useFmiWind } from './hooks/useFmiWind';
 import { haversineKm, etaMinutes } from './lib/geo';
@@ -18,7 +19,7 @@ import {
   deadSegmentsFromIncidents,
   subtreeSegments,
 } from './lib/topology';
-import type { Crew, Incident, LiveState } from './lib/types';
+import type { Crew, CrewDefinition, Incident, LiveState } from './lib/types';
 import { SimDriver } from './sim/driver';
 
 const EMPTY: LiveState = { scenario: null, wind: null, incidents: [], crews: [], events: [] };
@@ -30,17 +31,33 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [auto, setAuto] = useState(true);
   const [mode, setMode] = useState<'storm' | 'live'>('storm');
+  const [page, setPage] = useState<'operations' | 'crews'>('operations');
+  const [crewDefinitions, setCrewDefinitions] = useState<CrewDefinition[] | null>(null);
   const driverRef = useRef<SimDriver | null>(null);
 
   useEffect(() => {
     loadGridAssets().then(setAssets).catch((e) => setError(String(e)));
   }, []);
 
+  const defaultCrewDefinitions = useMemo<CrewDefinition[]>(() => {
+    if (!assets) return [];
+    const shiftStart = assets.scenario.startWallClock;
+    const shiftEnd = new Date(new Date(shiftStart).getTime() + 8 * 3600_000).toISOString();
+    return assets.scenario.crews.map((c) => ({
+      crew_id: c.crew_id,
+      callsign: c.callsign,
+      skills: c.skills,
+      depot: c.depot,
+      shiftStart,
+      shiftEnd,
+    }));
+  }, [assets]);
+
   // The simulation runs entirely in the browser from the bundled scenario +
   // topology, so the deployed app animates with no backend dependency.
   useEffect(() => {
     if (!assets) return;
-    const d = new SimDriver(assets, null);
+    const d = new SimDriver(assets, null, crewDefinitions ?? defaultCrewDefinitions);
     d.setAuto(auto);
     driverRef.current = d;
     void d.init();
@@ -56,7 +73,7 @@ export default function App() {
       driverRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assets]);
+  }, [assets, crewDefinitions, defaultCrewDefinitions]);
 
   useEffect(() => {
     driverRef.current?.setAuto(auto);
@@ -105,7 +122,7 @@ export default function App() {
       crewsDispatched: live.crews.filter((c) => c.status !== 'idle' && c.status !== 'offshift').length,
       compensationEur: comp,
     };
-  }, [live, de, assets]);
+  }, [faults, live.scenario, live.crews, de, assets]);
 
   const sub: KpiSub = useMemo(() => {
     const active = faults.filter((i) => i.status !== 'restored');
@@ -125,7 +142,7 @@ export default function App() {
       crewsAvailable: live.crews.filter((c) => c.status === 'idle').length,
       minsToFirstTier: active.length ? Math.max(0, Math.round(12 * 60 - maxOutMin)) : null,
     };
-  }, [live, assets, kpis.customersOut]);
+  }, [faults, live.scenario, live.crews, assets, kpis.customersOut]);
 
   const gantt = useMemo(() => buildCrewGantt(live.events, live.crews, live.incidents), [live.events, live.crews, live.incidents]);
   const alerts = useMemo(() => toAlerts(live.events), [live.events]);
@@ -151,7 +168,6 @@ export default function App() {
       }
     }
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [faults, suggestions]);
   const reserveSuggested = selectedIncident ? reserveSuggestions[selectedIncident.incident_id] ?? null : null;
 
@@ -166,6 +182,7 @@ export default function App() {
 
   // Switch between the recorded storm replay and live/normal operations.
   function changeMode(m: 'storm' | 'live') {
+    setPage('operations');
     if (m === mode) return;
     setMode(m);
     setSelected(null);
@@ -185,7 +202,16 @@ export default function App() {
         fmiWind={fmi}
         mode={mode}
         onMode={changeMode}
+        page={page}
+        onPage={setPage}
       />
+      {page === 'crews' ? (
+        <CrewManagement
+          initialCrews={defaultCrewDefinitions}
+          activeCrews={crewDefinitions}
+          onCrewsChange={setCrewDefinitions}
+        />
+      ) : (
       <div className="stage">
         <MapView
           assets={assets}
@@ -216,6 +242,7 @@ export default function App() {
         )}
         <IncidentQueue
           incidents={faults}
+          crews={live.crews}
           suggestions={suggestions}
           reserveSuggestions={reserveSuggestions}
           simNowIso={live.scenario?.sim_clock}
@@ -235,6 +262,7 @@ export default function App() {
         {selectedIncident && (
           <FaultDetail
             incident={selectedIncident}
+            crews={live.crews}
             suggested={suggested}
             reserveSuggestion={reserveSuggested}
             simNowIso={live.scenario?.sim_clock}
@@ -244,7 +272,8 @@ export default function App() {
           />
         )}
       </div>
-      <EventsTicker alerts={alerts} />
+      )}
+      {page === 'operations' && <EventsTicker alerts={alerts} />}
     </div>
   );
 }

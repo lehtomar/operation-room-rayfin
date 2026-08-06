@@ -1,5 +1,5 @@
 {
-  "note": "Copy this file to basemap.local.json (gitignored) and fill in your MML API key. The frontend reads basemap.local.json at build time; never commit the key.",
+  "note": "Optional: copy this file to basemap.local.json (gitignored) for MML maps. Without it, the app uses keyless OSM and Esri basemaps.",
   "provider": "mml-wmts",
   "mmlApiKey": "<your-mml-api-key>",
   "wmtsUrl": "https://avoin-karttakuva.maanmittauslaitos.fi/avoin/wmts/1.0.0/taustakartta/default/WGS84_Pseudo-Mercator/{z}/{y}/{x}.png",

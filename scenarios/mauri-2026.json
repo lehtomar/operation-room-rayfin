@@ -2,10 +2,22 @@
   "id": "mauri-2026",
   "name": "Myrsky Mauri",
   "municipality": "sysma",
-  "description": "A NW→SE storm front crosses Sysmä. ~4 h of grid operations replayed in ~10 min of demo time. Faults cluster behind the front; one remote lakeside fault is slow to reach, and two primary feeders trip — ~1 130 käyttöpaikkaa on the Sysmä feeder and ~770 on the Nuoramoinen feeder.",
+  "description": "A NW→SE storm front crosses Sysmä. Seventeen faults over ~4 h create a sustained dispatch queue; one remote lakeside fault is slow to reach, and two primary feeders trip — ~1 130 käyttöpaikkaa on the Sysmä feeder and ~770 on the Nuoramoinen feeder.",
   "demoMinutesReal": 10,
   "simDurationMin": 240,
   "startWallClock": "2026-01-15T14:00:00+02:00",
+  "radarReplay": {
+    "start": "2026-07-09T08:00:00Z",
+    "end": "2026-07-09T12:00:00Z",
+    "stepMinutes": 5,
+    "bounds": [
+      24.8,
+      61.1,
+      26.8,
+      62
+    ],
+    "path": "radar/mauri-2026"
+  },
   "defaultSpeed": 24,
   "storm": {
     "name": "Mauri",
@@ -76,7 +88,7 @@
             61.42
           ],
           [
-            26.0,
+            26,
             61.34
           ]
         ]
@@ -297,6 +309,136 @@
       "repair_effort_min": 80,
       "requiredSkill": "line",
       "note": "Nuoramoisten lähdön laukeaminen — 770+ käyttöpaikkaa pimeänä."
+    },
+    {
+      "incident_id": "INC-08",
+      "offsetMin": 38,
+      "fault_type": "tree_on_line",
+      "seg_id": "F01-S13",
+      "feeder_id": "F01",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.566356,
+      "lon": 25.801136,
+      "repair_effort_min": 110,
+      "requiredSkill": "tree",
+      "note": "Multiple trees down on the north-eastern branch."
+    },
+    {
+      "incident_id": "INC-09",
+      "offsetMin": 48,
+      "fault_type": "tree_on_line",
+      "seg_id": "F03-S63",
+      "feeder_id": "F03",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.623559,
+      "lon": 25.661671,
+      "repair_effort_min": 100,
+      "requiredSkill": "tree",
+      "note": "Windfall blocks access to the northern line section."
+    },
+    {
+      "incident_id": "INC-10",
+      "offsetMin": 58,
+      "fault_type": "broken_pole",
+      "seg_id": "F02-S69",
+      "feeder_id": "F02",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.555094,
+      "lon": 25.650904,
+      "repair_effort_min": 120,
+      "requiredSkill": "line",
+      "note": "Pole failure behind the first storm front."
+    },
+    {
+      "incident_id": "INC-11",
+      "offsetMin": 62,
+      "fault_type": "transformer_failure",
+      "seg_id": "F01-S41",
+      "feeder_id": "F01",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.527686,
+      "lon": 25.800202,
+      "repair_effort_min": 150,
+      "requiredSkill": "hv",
+      "note": "Transformer protection trip requires an HV crew."
+    },
+    {
+      "incident_id": "INC-12",
+      "offsetMin": 68,
+      "fault_type": "tree_on_line",
+      "seg_id": "F06-S54",
+      "feeder_id": "F06",
+      "ss_id": "SS-NUORAMOINEN",
+      "lat": 61.439712,
+      "lon": 25.931313,
+      "repair_effort_min": 90,
+      "requiredSkill": "tree",
+      "note": "Tree damage on the remote eastern spur."
+    },
+    {
+      "incident_id": "INC-13",
+      "offsetMin": 76,
+      "fault_type": "broken_pole",
+      "seg_id": "F01-S23",
+      "feeder_id": "F01",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.583822,
+      "lon": 25.801445,
+      "repair_effort_min": 115,
+      "requiredSkill": "line",
+      "note": "Crossarm and pole damage on the north-eastern feeder."
+    },
+    {
+      "incident_id": "INC-14",
+      "offsetMin": 82,
+      "fault_type": "tree_on_line",
+      "seg_id": "F04-S13",
+      "feeder_id": "F04",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.446215,
+      "lon": 25.694065,
+      "repair_effort_min": 95,
+      "requiredSkill": "tree",
+      "note": "A second tree corridor fails south of the town centre."
+    },
+    {
+      "incident_id": "INC-15",
+      "offsetMin": 90,
+      "fault_type": "transformer_failure",
+      "seg_id": "F03-S11",
+      "feeder_id": "F03",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.661248,
+      "lon": 25.610622,
+      "repair_effort_min": 140,
+      "requiredSkill": "hv",
+      "note": "Remote transformer failure competes for the limited HV crews."
+    },
+    {
+      "incident_id": "INC-16",
+      "offsetMin": 98,
+      "fault_type": "broken_pole",
+      "seg_id": "F02-S55",
+      "feeder_id": "F02",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.507222,
+      "lon": 25.569651,
+      "repair_effort_min": 105,
+      "requiredSkill": "line",
+      "note": "Pole failure on the western branch."
+    },
+    {
+      "incident_id": "INC-17",
+      "offsetMin": 108,
+      "fault_type": "tree_on_line",
+      "seg_id": "F01-S38",
+      "feeder_id": "F01",
+      "ss_id": "SS-SYSMA",
+      "lat": 61.531975,
+      "lon": 25.841622,
+      "repair_effort_min": 85,
+      "requiredSkill": "tree",
+      "note": "Late tree fault extends the queue after the wind peak."
     }
   ],
   "liveSeed": {
@@ -328,6 +470,19 @@
         "durationMin": 175,
         "lat": 61.460812,
         "lon": 25.803707
+      },
+      {
+        "job_id": "MNT-03",
+        "crew_id": "K-1",
+        "title": "Scheduled switchgear inspection",
+        "feeder_id": "F01",
+        "ss_id": "SS-SYSMA",
+        "seg_id": "F01-S11",
+        "requiredSkill": "line",
+        "startOffsetMin": 45,
+        "durationMin": 75,
+        "lat": 61.531145,
+        "lon": 25.839649
       }
     ],
     "incidents": [

@@ -4,8 +4,17 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { FeatureCollection, Feature } from 'geojson';
 
 import type { GridAssets } from '../grid/assets';
-import { buildStyle, applyBasemapMode, radarTiles, type BasemapMode } from '../map/basemap';
+import {
+  archivedRadarImage,
+  buildStyle,
+  applyBasemapMode,
+  radarImageCoordinates,
+  radarTiles,
+  type BasemapMode,
+} from '../map/basemap';
+import { replayRadarFrameMs, replayRadarFrames } from '../lib/radar';
 import type { Crew, Incident } from '../lib/types';
+import { faultDispatchStatus } from '../lib/events';
 
 interface MapViewProps {
   assets: GridAssets;
@@ -24,7 +33,7 @@ interface MapViewProps {
 const LAYER_GROUPS: { key: string; label: string; layers: string[] }[] = [
   { key: 'feeders', label: 'MV feeders', layers: ['feeders-live', 'feeders-dead', 'feeders-hl'] },
   { key: 'transformers', label: 'Transformers', layers: ['transformers'] },
-  { key: 'faults', label: 'Faults', layers: ['faults', 'faults-pulse'] },
+  { key: 'faults', label: 'Faults', layers: ['faults', 'faults-status-ring', 'faults-pulse'] },
   { key: 'crews', label: 'Crews & routes', layers: ['crews', 'crews-label', 'dispatch-routes'] },
 ];
 const RADAR_OPACITY = 0.6;
@@ -40,29 +49,17 @@ const STATUS_COLOR: Record<string, string> = {
 /** Radar frames: last 2 h at 5-min steps, ending at the latest available. */
 const RADAR_STEP_MS = 5 * 60000;
 const LATEST_RADAR_MS = Math.floor((Date.now() - RADAR_STEP_MS) / RADAR_STEP_MS) * RADAR_STEP_MS;
-const RADAR_WINDOW_START_MS = LATEST_RADAR_MS - 7 * 24 * 3600 * 1000; // FMI open archive ≈ 7 days
-function snap5(ms: number): number {
-  return Math.floor(ms / RADAR_STEP_MS) * RADAR_STEP_MS;
-}
 function buildRadarFrames(count = 24): Date[] {
   const arr: Date[] = [];
   for (let i = count - 1; i >= 0; i--) arr.push(new Date(LATEST_RADAR_MS - i * RADAR_STEP_MS));
   return arr;
 }
 const RADAR_FRAMES = buildRadarFrames();
-/** Coarse frame set spanning the storm window (for cache warm-up). */
-function stormPrefetchFrames(durationMs: number): Date[] {
-  const step = 2 * RADAR_STEP_MS; // 10-min steps keeps the warm-up bounded
-  const anchor = LATEST_RADAR_MS - durationMs;
-  const arr: Date[] = [];
-  for (let t = anchor; t <= LATEST_RADAR_MS; t += step) arr.push(new Date(snap5(t)));
-  return arr;
-}
 function frameLabel(d: Date): string {
-  return d.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 function frameLabelFull(d: Date): string {
-  return d.toLocaleString('fi-FI', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 // --- radar tile prefetch (warm the browser cache for smooth scrub/loop) ---
@@ -81,7 +78,11 @@ function tileMercBBox(x: number, y: number, z: number): [number, number, number,
   return [minx, maxy - size, minx + size, maxy];
 }
 /** Preload the current viewport's tiles for the given frames so scrub/sync is smooth. */
-function prefetchRadar(map: maplibregl.Map, frames: Date[]): void {
+function prefetchRadar(
+  map: maplibregl.Map,
+  frames: Date[],
+  template: (frame: Date) => string
+): void {
   const z = Math.min(8, Math.max(0, Math.floor(map.getZoom())));
   const b = map.getBounds();
   const nw = lngLatToTile(b.getWest(), b.getNorth(), z);
@@ -90,12 +91,23 @@ function prefetchRadar(map: maplibregl.Map, frames: Date[]): void {
   for (let x = nw.x; x <= se.x; x++) for (let y = nw.y; y <= se.y; y++) tiles.push({ x, y });
   if (tiles.length === 0 || tiles.length > 30) return; // keep the warm-up bounded
   for (const f of frames) {
-    const base = radarTiles(f.toISOString());
+    const base = template(f);
     for (const t of tiles) {
       const img = new Image();
-      img.crossOrigin = 'anonymous'; // match MapLibre's CORS fetch → shared cache entry
-      img.src = base.replace('{bbox-epsg-3857}', tileMercBBox(t.x, t.y, z).join(','));
+      img.crossOrigin = 'anonymous';
+      img.src = base
+        .replace('{z}', String(z))
+        .replace('{x}', String(t.x))
+        .replace('{y}', String(t.y))
+        .replace('{bbox-epsg-3857}', tileMercBBox(t.x, t.y, z).join(','));
     }
+  }
+}
+
+function prefetchImages(frames: Date[], template: (frame: Date) => string): void {
+  for (const frame of frames) {
+    const image = new Image();
+    image.src = template(frame);
   }
 }
 
@@ -135,7 +147,7 @@ export function MapView(props: MapViewProps) {
     try {
       map = new maplibregl.Map({
         container: containerRef.current,
-        style: buildStyle(assets.basemap),
+        style: buildStyle(assets.basemap, assets.scenario.radarReplay),
         center: [assets.municipality.map.center.lon, assets.municipality.map.center.lat],
         zoom: assets.municipality.map.defaultZoom,
         attributionControl: { compact: true },
@@ -146,7 +158,7 @@ export function MapView(props: MapViewProps) {
     }
     mapRef.current = map;
     map.on('error', (e) => {
-      if (String(e?.error?.message ?? '').includes('WebGL')) setGlError('WebGL ei käytettävissä');
+      if (String(e?.error?.message ?? '').includes('WebGL')) setGlError('WebGL unavailable');
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
@@ -161,7 +173,7 @@ export function MapView(props: MapViewProps) {
       map.addSource('faults', { type: 'geojson', data: emptyFC() });
       map.addSource('crews', { type: 'geojson', data: emptyFC() });
 
-      // käyttöpaikat (dim density dots)
+      // customer connection points (dim density dots)
       map.addLayer({
         id: 'kp', type: 'circle', source: 'kayttopaikat',
         paint: { 'circle-radius': 1.6, 'circle-color': '#334155', 'circle-opacity': 0.5 },
@@ -186,14 +198,14 @@ export function MapView(props: MapViewProps) {
         paint: { 'line-color': '#ff4d4f', 'line-width': 2.6, 'line-dasharray': [2, 1.6] },
       });
 
-      // transformers (status squares via square-ish stroke + colour + size)
+      // Transformers stay deliberately smaller than fault origins.
       map.addLayer({
         id: 'transformers', type: 'circle', source: 'transformers',
         paint: {
-          'circle-radius': ['case', ['==', ['get', 'dead'], true], 5, 3],
+          'circle-radius': ['case', ['==', ['get', 'dead'], true], 3.2, 2],
           'circle-color': ['case', ['==', ['get', 'dead'], true], '#ff4d4f', '#2dd4bf'],
           'circle-stroke-color': ['case', ['==', ['get', 'dead'], true], '#7f1d1d', '#0f172a'],
-          'circle-stroke-width': ['case', ['==', ['get', 'dead'], true], 2, 0.5],
+          'circle-stroke-width': ['case', ['==', ['get', 'dead'], true], 1.2, 0.5],
         },
       });
 
@@ -214,15 +226,41 @@ export function MapView(props: MapViewProps) {
         paint: { 'text-color': '#e0f2fe', 'text-halo-color': '#0b0f14', 'text-halo-width': 1.5 },
       });
 
-      // fault pulses
+      // Only unassigned faults pulse; rings encode dispatch state while the
+      // large red centre consistently means the electrical fault origin.
       map.addLayer({
         id: 'faults-pulse', type: 'circle', source: 'faults',
+        filter: ['==', ['get', 'dispatch_status'], 'unassigned'],
         paint: { 'circle-radius': 10, 'circle-color': '#ef4444', 'circle-opacity': 0.25 },
+      });
+      map.addLayer({
+        id: 'faults-status-ring', type: 'circle', source: 'faults',
+        paint: {
+          'circle-radius': [
+            'match',
+            ['get', 'dispatch_status'],
+            'unassigned', 11,
+            'queued', 10,
+            9,
+          ],
+          'circle-color': 'rgba(0,0,0,0)',
+          'circle-stroke-color': [
+            'match',
+            ['get', 'dispatch_status'],
+            'unassigned', '#ff4d4f',
+            'queued', '#f5a524',
+            'assigned', '#38bdf8',
+            'onsite', '#a78bfa',
+            '#94a3b8',
+          ],
+          'circle-stroke-width': 3,
+          'circle-stroke-opacity': 0.95,
+        },
       });
       map.addLayer({
         id: 'faults', type: 'circle', source: 'faults',
         paint: {
-          'circle-radius': 6,
+          'circle-radius': 7,
           'circle-color': ['case', ['==', ['get', 'selected'], true], '#fde047', '#ef4444'],
           'circle-stroke-color': '#450a0a', 'circle-stroke-width': 2,
         },
@@ -316,21 +354,31 @@ export function MapView(props: MapViewProps) {
     const map = mapRef.current;
     if (!map) return;
     radarPendingRef.current();
-    for (const buf of ['a', 'b']) {
-      if (map.getLayer(`fmi-radar-${buf}`)) map.setPaintProperty(`fmi-radar-${buf}`, 'raster-opacity', 0);
+    for (const prefix of ['fmi-radar', 'replay-radar']) {
+      for (const buf of ['a', 'b']) {
+        if (map.getLayer(`${prefix}-${buf}`)) map.setPaintProperty(`${prefix}-${buf}`, 'raster-opacity', 0);
+      }
     }
   }, []);
 
-  const showRadarFrame = useCallback((iso: string) => {
+  const showRadarFrame = useCallback((iso: string, archived: boolean) => {
     const map = mapRef.current;
-    if (!map || !map.getLayer('fmi-radar-a')) return;
+    const prefix = archived ? 'replay-radar' : 'fmi-radar';
+    if (!map || !map.getLayer(`${prefix}-a`)) return;
     radarPendingRef.current(); // cancel any previous pending swap
     const front = radarFrontRef.current;
     const back = front === 'a' ? 'b' : 'a';
-    const backSrc = `fmi-radar-${back}`;
-    (map.getSource(backSrc) as unknown as { setTiles?: (t: string[]) => void } | undefined)?.setTiles?.([
-      radarTiles(iso),
-    ]);
+    const backSrc = `${prefix}-${back}`;
+    if (archived && assets.scenario.radarReplay) {
+      (map.getSource(backSrc) as maplibregl.ImageSource | undefined)?.updateImage({
+        url: archivedRadarImage(assets.scenario.radarReplay, iso),
+        coordinates: radarImageCoordinates(assets.scenario.radarReplay),
+      });
+    } else {
+      (map.getSource(backSrc) as unknown as { setTiles?: (t: string[]) => void } | undefined)?.setTiles?.([
+        radarTiles(iso),
+      ]);
+    }
     let done = false;
     const swap = () => {
       if (done) return;
@@ -338,8 +386,12 @@ export function MapView(props: MapViewProps) {
       map.off('sourcedata', onData);
       clearTimeout(tid);
       // fade the freshly-loaded buffer in and the old one out (crossfade)
-      map.setPaintProperty(`fmi-radar-${back}`, 'raster-opacity', RADAR_OPACITY);
-      map.setPaintProperty(`fmi-radar-${front}`, 'raster-opacity', 0);
+      map.setPaintProperty(`${prefix}-${back}`, 'raster-opacity', RADAR_OPACITY);
+      map.setPaintProperty(`${prefix}-${front}`, 'raster-opacity', 0);
+      const other = archived ? 'fmi-radar' : 'replay-radar';
+      for (const buf of ['a', 'b']) {
+        if (map.getLayer(`${other}-${buf}`)) map.setPaintProperty(`${other}-${buf}`, 'raster-opacity', 0);
+      }
       radarFrontRef.current = back;
     };
     const onData = (e: maplibregl.MapSourceDataEvent) => {
@@ -351,15 +403,11 @@ export function MapView(props: MapViewProps) {
       map.off('sourcedata', onData);
       clearTimeout(tid);
     };
-  }, []);
+  }, [assets.scenario.radarReplay]);
 
-  // apply the selected frame (or fade out when radar is off)
-  // Storm mode: radar time follows the simulated clock, anchored into the real
-  // FMI archive window (storm end ≈ latest available frame).
-  const stormFrameMs = Math.min(
-    LATEST_RADAR_MS,
-    Math.max(RADAR_WINDOW_START_MS, snap5(LATEST_RADAR_MS - props.stormDurationMs + props.stormElapsedMs))
-  );
+  const stormFrameMs = assets.scenario.radarReplay
+    ? replayRadarFrameMs(assets.scenario.radarReplay, props.stormElapsedMs, props.stormDurationMs)
+    : null;
 
   // apply the selected frame (or fade out when radar is off)
   useEffect(() => {
@@ -369,10 +417,11 @@ export function MapView(props: MapViewProps) {
       return;
     }
     if (props.mode === 'storm') {
-      showRadarFrame(new Date(stormFrameMs).toISOString());
+      if (stormFrameMs != null) showRadarFrame(new Date(stormFrameMs).toISOString(), true);
+      else fadeOutRadar();
     } else {
       const iso = RADAR_FRAMES[radarIdx]?.toISOString();
-      if (iso) showRadarFrame(iso);
+      if (iso) showRadarFrame(iso, false);
     }
   }, [visible.radar, radarIdx, props.mode, stormFrameMs, showRadarFrame, fadeOutRadar]);
 
@@ -382,7 +431,12 @@ export function MapView(props: MapViewProps) {
       setRadarIdx(RADAR_FRAMES.length - 1);
       const map = mapRef.current;
       if (map && loadedRef.current) {
-        prefetchRadar(map, props.mode === 'storm' ? stormPrefetchFrames(props.stormDurationMs) : RADAR_FRAMES);
+        if (props.mode === 'storm' && assets.scenario.radarReplay) {
+          const replay = assets.scenario.radarReplay;
+          prefetchImages(replayRadarFrames(replay, 2), (frame) => archivedRadarImage(replay, frame.toISOString()));
+        } else {
+          prefetchRadar(map, RADAR_FRAMES, (frame) => radarTiles(frame.toISOString()));
+        }
       }
     } else {
       setRadarPlaying(false);
@@ -437,7 +491,11 @@ export function MapView(props: MapViewProps) {
         <LegendRow swatch={<span className="lg-line dead" />} text="De-energized" />
         <LegendRow swatch={<span className="lg-sq ok" />} text="Transformer OK" />
         <LegendRow swatch={<span className="lg-sq out" />} text="Transformer out" />
-        <LegendRow swatch={<span className="lg-dot fault" />} text="Fault (pulsing)" />
+        <LegendRow swatch={<span className="lg-dot fault" />} text="Fault origin (large)" />
+        <LegendRow swatch={<span className="lg-ring unassigned" />} text="Unassigned (pulsing)" />
+        <LegendRow swatch={<span className="lg-ring queued" />} text="Queued" />
+        <LegendRow swatch={<span className="lg-ring assigned" />} text="Assigned / en route" />
+        <LegendRow swatch={<span className="lg-ring onsite" />} text="On site" />
         <LegendRow swatch={<span className="lg-pill" />} text="Crew (K1…K6)" />
         <LegendRow swatch={<span className="lg-line route" />} text="Dispatch route" />
       </div>
@@ -445,8 +503,8 @@ export function MapView(props: MapViewProps) {
         <div className={`radar-control ${props.mode === 'storm' ? 'storm' : ''}`}>
           {props.mode === 'storm' ? (
             <>
-              <span className="radar-time">Radar {frameLabelFull(new Date(stormFrameMs))}</span>
-              <span className="radar-tag">SYNCED TO STORM · FMI</span>
+              <span className="radar-time">Radar {stormFrameMs == null ? 'unavailable' : frameLabelFull(new Date(stormFrameMs))}</span>
+              <span className="radar-tag">FIXED REPLAY ARCHIVE · FMI</span>
             </>
           ) : (
             <>
@@ -547,6 +605,7 @@ function faultsFC(
         properties: {
           incident_id: i.incident_id,
           fault_type: i.fault_type,
+          dispatch_status: faultDispatchStatus(i),
           selected: i.incident_id === selected,
         },
         geometry: { type: 'Point', coordinates: coordFor(i) as [number, number] },

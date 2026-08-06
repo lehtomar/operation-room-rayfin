@@ -17,6 +17,7 @@ export interface ReserveHint {
 
 interface IncidentQueueProps {
   incidents: Incident[];
+  crews: Crew[];
   suggestions: Record<string, Suggestion | null>;
   reserveSuggestions: Record<string, ReserveHint | null>;
   simNowIso: string | undefined;
@@ -40,6 +41,8 @@ function hhmm(iso: string | null): string {
 
 export function IncidentQueue(props: IncidentQueueProps) {
   const { incidents, simNowIso } = props;
+  const crewName = (id: string | null | undefined) =>
+    props.crews.find((crew) => crew.crew_id === id)?.callsign ?? id ?? 'Unknown crew';
   const active = incidents
     .filter((i) => i.status !== 'restored')
     .map((i) => {
@@ -60,7 +63,7 @@ export function IncidentQueue(props: IncidentQueueProps) {
           {active.length} active · <span className="queue-un">{unassigned} unassigned</span>
         </span>
       </div>
-      <div className="queue-note">Ranked by impact · käyttöpaikat × outage h · drag onto a crew row to assign</div>
+      <div className="queue-note">Ranked by impact · customers × outage h · drag onto a crew row to assign</div>
       <div className="queue-list">
         {active.length === 0 && <div className="queue-empty">No active faults — normal operations</div>}
         {active.map(({ i, mins, impact }) => {
@@ -82,14 +85,14 @@ export function IncidentQueue(props: IncidentQueueProps) {
                 <span className="icard-fid">{i.seg_id}</span>
               </div>
               <div className="icard-mid">
-                <span className="icard-kp">{i.affected_kp.toLocaleString('fi-FI')} käyttöpaikkaa</span>
+                <span className="icard-kp">{i.affected_kp.toLocaleString('en-GB')} customers</span>
                 <span className="icard-out">out {outLabel(mins)}</span>
-                <span className="icard-impact">{impact.toLocaleString('fi-FI')} kp·h</span>
+                <span className="icard-impact">{impact.toLocaleString('en-GB')} customer·h</span>
               </div>
               <div className="icard-bot">
                 {open ? (
                   i.reserved_crew_id ? (
-                    <span className="pill st-assigned">● QUEUED → {i.reserved_crew_id}</span>
+                    <span className="pill st-assigned">● QUEUED → {crewName(i.reserved_crew_id)}</span>
                   ) : (
                     <>
                       <span className="pill st-open">● UNASSIGNED</span>
@@ -110,7 +113,7 @@ export function IncidentQueue(props: IncidentQueueProps) {
                             e.stopPropagation();
                             props.onReserve(i.incident_id);
                           }}
-                          title={`${res.crew_id} frees in ~${res.freesInMin} min`}
+                          title={`${crewName(res.crew_id)} frees in ~${res.freesInMin} min`}
                         >
                           ASSIGN NEXT FREE
                         </button>
@@ -121,7 +124,7 @@ export function IncidentQueue(props: IncidentQueueProps) {
                   )
                 ) : (
                   <span className={`pill st-${i.status}`}>
-                    ● {i.status === 'onsite' ? 'ON SITE' : i.status === 'enroute' ? 'EN ROUTE' : 'ASSIGNED'} — {i.crew_id}
+                    ● {i.status === 'onsite' ? 'ON SITE' : i.status === 'enroute' ? 'EN ROUTE' : 'ASSIGNED'} — {crewName(i.crew_id)}
                     {i.status === 'enroute' && i.eta_min ? ` · ETA ${i.eta_min} min` : ''}
                   </span>
                 )}
@@ -145,7 +148,7 @@ export function IncidentQueue(props: IncidentQueueProps) {
                 </div>
                 <div className="icard-bot">
                   <span className="pill st-restored">● RESTORED {hhmm(i.restored_at)}</span>
-                  <span className="icard-crew">{i.crew_id}</span>
+                  <span className="icard-crew">{crewName(i.crew_id)}</span>
                 </div>
               </div>
             ))}

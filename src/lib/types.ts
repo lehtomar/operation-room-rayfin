@@ -46,6 +46,16 @@ export interface Crew {
   route?: [number, number][] | null; // active road route while enroute
 }
 
+export interface CrewDefinition {
+  id?: string;
+  crew_id: string;
+  callsign: string;
+  skills: string[];
+  depot: { lat: number; lon: number };
+  shiftStart: string;
+  shiftEnd: string;
+}
+
 export interface GridEventRow {
   ts: string;
   event_type: string; // fault | restoration | crew_status | transformer_status
@@ -87,6 +97,13 @@ export interface ScenarioMeta {
   simDurationMin: number;
   defaultSpeed?: number;
   startWallClock: string;
+  radarReplay?: {
+    start: string;
+    end: string;
+    stepMinutes: number;
+    bounds: [number, number, number, number];
+    path: string;
+  };
   crews: {
     crew_id: string;
     callsign: string;

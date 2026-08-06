@@ -20,6 +20,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 interface FaultDetailProps {
   incident: Incident;
+  crews: Crew[];
   suggested: { crew: Crew; etaMin: number } | null;
   reserveSuggestion: { crew_id: string; freesInMin: number } | null;
   simNowIso: string | undefined;
@@ -37,6 +38,8 @@ function outage(startIso: string | null, nowIso: string | undefined): string {
 
 export function FaultDetail(props: FaultDetailProps) {
   const { incident: i, suggested } = props;
+  const crewName = (id: string | null | undefined) =>
+    props.crews.find((crew) => crew.crew_id === id)?.callsign ?? id ?? 'Unknown crew';
   return (
     <aside className="detail">
       <div className="detail-head">
@@ -50,7 +53,7 @@ export function FaultDetail(props: FaultDetailProps) {
       </div>
 
       <div className="detail-grid">
-        <Stat label="Affected" value={`${i.affected_kp.toLocaleString('fi-FI')} kp`} tone="danger" />
+        <Stat label="Affected" value={`${i.affected_kp.toLocaleString('en-GB')} customers`} tone="danger" />
         <Stat label="Outage" value={outage(i.started_at, props.simNowIso)} />
       </div>
 
@@ -61,7 +64,7 @@ export function FaultDetail(props: FaultDetailProps) {
 
       {i.status === 'open' ? (
         i.reserved_crew_id ? (
-          <div className="detail-crew">Queued → {i.reserved_crew_id} (next free)</div>
+          <div className="detail-crew">Queued → {crewName(i.reserved_crew_id)} (next free)</div>
         ) : suggested ? (
           <button
             className="dispatch-btn"
@@ -71,14 +74,14 @@ export function FaultDetail(props: FaultDetailProps) {
           </button>
         ) : props.reserveSuggestion ? (
           <button className="dispatch-btn reserve" onClick={() => props.onReserve(i.incident_id)}>
-            Assign to next free: <b>{props.reserveSuggestion.crew_id}</b> · frees in ~{props.reserveSuggestion.freesInMin} min →
+            Assign to next free: <b>{crewName(props.reserveSuggestion.crew_id)}</b> · frees in ~{props.reserveSuggestion.freesInMin} min →
           </button>
         ) : (
           <div className="no-crew">No crew with the matching skill</div>
         )
       ) : (
         <div className="detail-crew">
-          {i.crew_id} {STATUS_LABEL[i.status]?.toLowerCase()}
+          {crewName(i.crew_id)} {STATUS_LABEL[i.status]?.toLowerCase()}
           {i.status === 'enroute' && i.eta_min ? ` · ETA ${i.eta_min} min` : ''}
         </div>
       )}

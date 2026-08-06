@@ -1,6 +1,7 @@
 import type maplibregl from 'maplibre-gl';
 import type { StyleSpecification } from 'maplibre-gl';
 import type { BasemapConfig } from '../grid/assets';
+import { radarFrameKey, type RadarReplay } from '../lib/radar';
 
 const DARK_BG = '#0a0e14';
 const GLYPHS = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
@@ -8,11 +9,11 @@ const GLYPHS = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
 export type BasemapMode = 'map' | 'dark' | 'satellite';
 
 /**
- * A single dark-canvas style with two MML WMTS raster basemaps layered on top
- * (background map + orthophoto/satellite). The active one is chosen at runtime
- * via layer visibility (see MapView), so we never re-create the style.
+ * A single dark-canvas style with map and satellite raster basemaps layered on
+ * top. MML is preferred when configured; keyless OSM/Esri sources keep the map
+ * usable otherwise.
  */
-export function buildStyle(basemap: BasemapConfig): StyleSpecification {
+export function buildStyle(basemap: BasemapConfig, replay?: RadarReplay): StyleSpecification {
   const sources: StyleSpecification['sources'] = {};
   const layers: NonNullable<StyleSpecification['layers']> = [
     { id: 'bg', type: 'background', paint: { 'background-color': DARK_BG } },
@@ -35,6 +36,34 @@ export function buildStyle(basemap: BasemapConfig): StyleSpecification {
       tiles: [`${ortho}?api-key=${basemap.mmlApiKey}`],
       tileSize: 256,
       attribution: '© Maanmittauslaitos',
+    };
+    layers.push({
+      id: 'mml',
+      type: 'raster',
+      source: 'mml',
+      paint: { 'raster-brightness-max': 0.82, 'raster-saturation': -0.25, 'raster-contrast': 0.05 },
+    });
+    layers.push({
+      id: 'ortokuva',
+      type: 'raster',
+      source: 'ortokuva',
+      layout: { visibility: 'none' },
+      paint: { 'raster-brightness-max': 0.9 },
+    });
+  } else {
+    sources.mml = {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: '© OpenStreetMap contributors',
+    };
+    sources.ortokuva = {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: 'Tiles © Esri',
     };
     layers.push({
       id: 'mml',
@@ -77,6 +106,26 @@ export function buildStyle(basemap: BasemapConfig): StyleSpecification {
     });
   }
 
+  if (replay) {
+    for (const buf of ['a', 'b'] as const) {
+      sources[`replay-radar-${buf}`] = {
+        type: 'image',
+        url: archivedRadarImage(replay, replay.start),
+        coordinates: radarImageCoordinates(replay),
+      };
+      layers.push({
+        id: `replay-radar-${buf}`,
+        type: 'raster',
+        source: `replay-radar-${buf}`,
+        paint: {
+          'raster-opacity': 0,
+          'raster-opacity-transition': { duration: 250, delay: 0 },
+          'raster-fade-duration': 0,
+        },
+      });
+    }
+  }
+
   return { version: 8, glyphs: GLYPHS, sources, layers };
 }
 
@@ -93,6 +142,23 @@ export function radarTiles(timeIso: string): string {
     '&srs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}&TIME=' +
     t
   );
+}
+
+export function archivedRadarImage(replay: RadarReplay, timeIso: string): string {
+  const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+  return `${base}data/${replay.path}/${radarFrameKey(timeIso)}.png`;
+}
+
+export function radarImageCoordinates(
+  replay: RadarReplay
+): [[number, number], [number, number], [number, number], [number, number]] {
+  const [west, south, east, north] = replay.bounds;
+  return [
+    [west, north],
+    [east, north],
+    [east, south],
+    [west, south],
+  ];
 }
 
 /** Apply a basemap mode by toggling the two raster layers' visibility. */

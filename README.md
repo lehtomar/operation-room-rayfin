@@ -1,12 +1,12 @@
-# Verkkovahti — storm operations control room
+# Gridwatch — storm operations control room
 
 A real-time **storm operations control room** for a Finnish electricity DSO,
 demoed on the municipality of **Sysmä**. Dispatchers watch grid outages and field
 crews live on a map and dispatch crews; a scenario player replays a synthetic
-storm (**Myrsky Mauri**) over a compressed timeline (~10 min demo ≈ 4 h
+storm (**Storm Mauri**) over a compressed timeline (~10 min demo ≈ 4 h
 simulated). Built as a **Rayfin** app on **Microsoft Fabric**.
 
-> Dark theme · Finnish place names · English UI · term **käyttöpaikat** kept ·
+> Dark theme · Finnish place names · English UI ·
 > tabular numerals · no colour-only status (feeders are dashed **and** red).
 
 ![Control room](https://img.shields.io/badge/Fabric-Data%20App-38bdf8) ·
@@ -142,8 +142,9 @@ python -m pip install -r tools/gridgen/requirements.txt -r simulator/requirement
 > Regenerating changes the `seg_id`s that `scenarios/mauri-2026.json` references,
 > so `build` requires `--force` (or write elsewhere with `--out`).
 
-Copy `config/db.example.json` → `config/db.local.json` and
-`config/basemap.example.json` → `config/basemap.local.json` (MML WMTS key). Get
+Copy `config/db.example.json` → `config/db.local.json`. Optionally copy
+`config/basemap.example.json` → `config/basemap.local.json` for MML maps; the
+app otherwise uses keyless OSM and Esri basemaps. Get
 the SQL DB values from
 `GET /v1/workspaces/{ws}/SQLDatabases/{id}` (see DEPLOY.md).
 
@@ -151,11 +152,11 @@ the SQL DB values from
 
 The top bar switches between two views:
 
-- **Storm replay** (default): replays the recorded storm (Myrsky Mauri) with the
+- **Storm replay** (default): replays the recorded storm (Storm Mauri) with the
   full player (play/pause, 8/24/60×, AUTO dispatch, reset). When the **Rain radar
-  (FMI)** layer is on, the radar is **synced to the simulated clock** — anchored
-  into FMI's real ~7-day archive window — so real rain frames advance with the
-  replay (label shows the historical time).
+  (FMI)** layer is on, the radar is **synced to the simulated clock** using the
+  bundled 9 July 2026 archive, so the replay remains deterministic after FMI's
+  seven-day source retention expires.
 - **Live**: real-time / normal-operations monitoring — the grid resets to its
   healthy state, the clock shows the current time, and the radar shows the latest
   live frames with a scrub slider + loop.
@@ -177,15 +178,14 @@ Two ways to run it. **A) Local** (fastest, reset button enabled).
    feeders green, **NORMAALITILANNE**.
 5. Press **▶** in the top bar. The storm begins; the wind chip climbs.
 6. Faults appear **NW→SE** behind the front; affected feeders turn **dashed
-   red**, transformers flip, faults pulse, and the KPIs (käyttöpaikat pimeänä,
-   vakiokorvausriski €) climb.
+   red**, transformers flip, faults pulse, and the customer/compensation KPIs climb.
 7. Click a fault (map or queue) → its **downstream** network highlights and the
    detail panel opens. Note the 1,129-käyttöpaikka feeder trip and the remote
    **lakeside** fault (slow to reach).
-8. Hit **Ehdota partiota** (suggest) or **drag** an incident card onto a crew
-   row to dispatch — the crew turns *Matkalla*.
-9. Watch crews drive to sites, repair, and **restore power**: feeders go green,
-   incidents clear, KPIs fall. Adjust **speed** (12–96×) as needed.
+8. Use the suggested crew or **drag** an incident card onto a crew row to
+   dispatch it.
+9. Watch crews drive to sites, repair, **restore power**, and return to their
+   depots: feeders go green, incidents clear, KPIs fall.
 10. Press **⟲** to reset and replay. Runs clean end-to-end in ~10 min.
 
 ### B) Fabric portal demo
@@ -194,6 +194,9 @@ the Fabric portal**. The simulation runs **entirely in the browser** (from the
 bundled scenario + topology), so there is nothing to start server-side — just
 press **▶**, pick a speed, toggle **AUTO** dispatch, and use the map basemap
 switch (**Map / Dark / Satellite**). No local process is required.
+
+The **Crews** page manages the shared Rayfin crew roster, including callsigns,
+skills, depot coordinates and shifts. Local development uses browser storage.
 
 > The Rayfin **Fabric SQL Database** path (data model + the Python simulator
 > writing over TDS + the KQL templates) remains available as the "server-side /

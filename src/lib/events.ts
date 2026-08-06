@@ -1,5 +1,13 @@
 import type { Crew, GridEventRow, Incident } from './types';
 
+export type FaultDispatchStatus = 'unassigned' | 'queued' | 'assigned' | 'onsite';
+
+export function faultDispatchStatus(incident: Incident): FaultDispatchStatus {
+  if (incident.status === 'open') return incident.reserved_crew_id ? 'queued' : 'unassigned';
+  if (incident.status === 'onsite') return 'onsite';
+  return 'assigned';
+}
+
 const FAULT_LABEL: Record<string, string> = {
   tree_on_line: 'Tree on line',
   broken_pole: 'Broken pole',
@@ -16,7 +24,7 @@ export function describeEvent(e: GridEventRow): string {
   const p = e.payload ?? {};
   switch (e.event_type) {
     case 'fault':
-      return `New ${FAULT_LABEL[String(p.type)] ?? 'fault'} — feeder ${e.feeder_id} · ${p.kp ?? '?'} käyttöpaikkaa`;
+      return `New ${FAULT_LABEL[String(p.type)] ?? 'fault'} — feeder ${e.feeder_id} · ${p.kp ?? '?'} customers`;
     case 'restoration':
       return `Restored — feeder ${e.feeder_id} · ${e.entity_id}`;
     case 'crew_status':
@@ -53,7 +61,7 @@ export function toAlerts(events: GridEventRow[]): AlertItem[] {
 export interface GanttBlock {
   incident: string;
   feeder: string | null;
-  kind: 'incident' | 'maintenance';
+  kind: 'incident' | 'maintenance' | 'queued';
   startMs: number;
   onsiteMs: number | null;
   endMs: number | null; // null = still ongoing (actual restoration time)
@@ -109,6 +117,31 @@ export function buildCrewGantt(
     }
   }
 
+  for (const inc of incidents) {
+    if (
+      inc.fault_type !== 'scheduled_maintenance' ||
+      inc.status !== 'scheduled' ||
+      !inc.crew_id ||
+      !inc.started_at ||
+      openByIncident.has(inc.incident_id)
+    ) {
+      continue;
+    }
+    const startMs = new Date(inc.started_at).getTime();
+    const block: GanttBlock = {
+      incident: inc.incident_id,
+      feeder: inc.feeder_id,
+      kind: 'maintenance',
+      startMs,
+      onsiteMs: null,
+      endMs: null,
+      estOnsiteMs: startMs,
+      estEndMs: startMs + inc.repair_effort_min * 60000,
+    };
+    if (!blocks.has(inc.crew_id)) blocks.set(inc.crew_id, []);
+    blocks.get(inc.crew_id)!.push(block);
+  }
+
   // Project estimated arrival + completion for every block.
   for (const list of blocks.values()) {
     for (const b of list) {
@@ -119,5 +152,47 @@ export function buildCrewGantt(
       b.estEndMs = b.endMs ?? b.estOnsiteMs + repairMs;
     }
   }
+
+  const reservedAt = new Map<string, number>();
+  for (const event of asc) {
+    const reserved = event.event_type === 'crew_status' ? event.payload?.reserved : null;
+    if (reserved) reservedAt.set(String(reserved), new Date(event.ts).getTime());
+  }
+  const queuedByCrew = new Map<string, Incident[]>();
+  for (const incident of incidents) {
+    if (incident.status !== 'open' || !incident.reserved_crew_id) continue;
+    const queued = queuedByCrew.get(incident.reserved_crew_id) ?? [];
+    queued.push(incident);
+    queuedByCrew.set(incident.reserved_crew_id, queued);
+  }
+  for (const [crewId, queued] of queuedByCrew) {
+    const list = blocks.get(crewId) ?? [];
+    queued.sort(
+      (a, b) =>
+        (reservedAt.get(a.incident_id) ?? new Date(a.started_at ?? 0).getTime()) -
+        (reservedAt.get(b.incident_id) ?? new Date(b.started_at ?? 0).getTime())
+    );
+    let freeAt = Math.max(0, ...list.map((block) => block.estEndMs));
+    for (const incident of queued) {
+      const queuedAt = reservedAt.get(incident.incident_id) ?? new Date(incident.started_at ?? 0).getTime();
+      const startMs = Math.max(freeAt, queuedAt);
+      const estOnsiteMs = startMs + (incident.eta_min ?? 10) * 60000;
+      const block: GanttBlock = {
+        incident: incident.incident_id,
+        feeder: incident.feeder_id,
+        kind: 'queued',
+        startMs,
+        onsiteMs: null,
+        endMs: null,
+        estOnsiteMs,
+        estEndMs: estOnsiteMs + incident.repair_effort_min * 60000,
+      };
+      list.push(block);
+      freeAt = block.estEndMs;
+    }
+    blocks.set(crewId, list);
+  }
+
+  for (const list of blocks.values()) list.sort((a, b) => a.startMs - b.startMs);
   return blocks;
 }

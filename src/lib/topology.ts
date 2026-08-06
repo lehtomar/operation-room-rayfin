@@ -1,6 +1,6 @@
 import type { Incident, Topology } from './types';
 
-/** Käyttöpaikka ids de-energized by a single faulted segment. */
+/** Customer connection IDs de-energized by a single faulted segment. */
 export function segmentKayttopaikat(topo: Topology, segId: string): string[] {
   return topo.segments[segId]?.kayttopaikka_ids ?? [];
 }
